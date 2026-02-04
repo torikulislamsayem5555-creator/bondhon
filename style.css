@@ -2,37 +2,51 @@
 
 body {
     font-family: 'Hind Siliguri', sans-serif;
+    -webkit-tap-highlight-color: transparent;
 }
 
 .nav-glass {
-    background: rgba(255, 255, 255, 0.95);
-    backdrop-filter: blur(10px);
+    background: rgba(255, 255, 255, 0.9);
+    backdrop-filter: blur(12px);
 }
 
-.stat-card {
-    transition: transform 0.3s ease;
+/* মোবাইল পপআপ এনিমেশন */
+@media (max-width: 768px) {
+    .scale-in {
+        animation: slideUp 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
 }
 
-.stat-card:hover {
-    transform: translateY(-5px);
+@media (min-width: 769px) {
+    .scale-in {
+        animation: scaleIn 0.2s ease-out;
+    }
 }
 
-.scale-in {
-    animation: scaleIn 0.2s ease-out;
+@keyframes slideUp {
+    from { transform: translateY(100%); }
+    to { transform: translateY(0); }
 }
 
 @keyframes scaleIn {
-    from { transform: scale(0.98); opacity: 0; }
+    from { transform: scale(0.9); opacity: 0; }
     to { transform: scale(1); opacity: 1; }
 }
 
-.only-print { display: none; }
+.stat-card {
+    transition: all 0.2s ease;
+}
 
-/* প্রিন্ট সেটিং */
-@media print {
-    body * { visibility: hidden; }
-    #printArea, #printArea * { visibility: visible; }
-    #printArea { position: absolute; left: 0; top: 0; width: 100%; border: none; }
-    .no-print { display: none !important; }
-    .only-print { display: block !important; }
+.stat-card:active {
+    transform: scale(0.95);
+}
+
+#deleteConfirmModal .bg-rose-50 {
+    background-color: #fff1f2;
+}
+
+/* সুন্দর ইনপুট স্টাইল */
+input:focus {
+    border-color: #16a34a !important;
+    outline: none;
 }
