@@ -12,6 +12,8 @@
     --shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.05);
 }
 
+/* ডার্ক মোড পুরোপুরি রিমুভ করা হয়েছে */
+
 * {
     margin: 0;
     padding: 0;
@@ -26,21 +28,24 @@ body {
     -webkit-tap-highlight-color: transparent;
     line-height: 1.6;
     overflow-x: hidden;
+    /* কিবোর্ড ওপেন হলে যাতে স্ক্রিন কাঁপাকাঁপি না করে */
+    overscroll-behavior-y: contain;
 }
 
-/* নেভিগেশন - গ্লাসি ইফেক্ট (সবসময় সাদা) */
+/* নেভিগেশন */
 .nav-glass {
-    background: rgba(255, 255, 255, 0.8);
-    backdrop-filter: blur(20px) saturate(180%);
-    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    background: rgba(255, 255, 255, 0.95);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
     border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+    z-index: 50;
 }
 
 /* স্ট্যাট কার্ড */
 .stat-card {
     background: var(--card-bg);
     border-radius: 28px;
-    border: 1px solid rgba(0, 0, 0, 0.03);
+    border: 1px solid rgba(0, 0, 0, 0.02);
     box-shadow: var(--shadow);
     transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
 }
@@ -59,44 +64,53 @@ button:active {
     transform: scale(0.92);
 }
 
-/* ইনপুট - সবসময় হালকা ব্যাকগ্রাউন্ড */
+/* ইনপুট - টাইপিং ফিক্স সহ */
 input {
-    background: rgba(0, 0, 0, 0.05) !important;
-    border: 2px solid transparent !important;
-    color: var(--text-main) !important;
+    background: #f8fafc !important; /* হালকা সলিড ব্যাকগ্রাউন্ড */
+    border: 2px solid #e2e8f0 !important;
+    color: #0f172a !important;
+    font-size: 16px !important; /* iOS জুম ইন সমস্যা প্রতিরোধের জন্য */
     transition: all 0.3s ease !important;
+    position: relative;
+    z-index: 101;
 }
 
 input:focus {
-    background: var(--card-bg) !important;
+    background: #ffffff !important;
     border-color: var(--primary) !important;
     box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.1) !important;
+    outline: none;
+}
+
+/* মডাল ওভারলে - কিবোর্ড ভ্যানিশ সমস্যার জন্য ব্লার কমানো হয়েছে */
+.modal-overlay {
+    background: rgba(15, 23, 42, 0.7) !important;
+    backdrop-filter: blur(4px) !important;
+    -webkit-backdrop-filter: blur(4px) !important;
+    transition: opacity 0.3s ease;
 }
 
 /* মডাল অ্যানিমেশন */
 .scale-in {
     animation: slideUp 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
+    background: #ffffff !important;
+    z-index: 105;
 }
 
 @keyframes slideUp {
-    from { transform: translateY(50px); opacity: 0; }
+    from { transform: translateY(100px); opacity: 0; }
     to { transform: translateY(0); opacity: 1; }
 }
 
-.modal-overlay {
-    background: rgba(15, 23, 42, 0.6) !important;
-    backdrop-filter: blur(8px) !important;
-    -webkit-backdrop-filter: blur(8px) !important;
-}
-
-/* কাস্টম স্ক্রলবার হাইড করা */
+/* কাস্টম স্ক্রলবার হাইড */
 ::-webkit-scrollbar {
     width: 0px;
+    display: none;
 }
 
 /* প্রিন্ট সেটিং */
 @media print {
-    .no-print, .fixed, button { display: none !important; }
+    .no-print, .fixed, button, .fab { display: none !important; }
     body { background: white; color: black; }
     .stat-card { border: 1px solid #eee; box-shadow: none; border-radius: 10px; }
 }
