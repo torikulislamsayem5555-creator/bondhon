@@ -1,0 +1,15 @@
+{
+  "name": "Bondhon Enterprise",
+  "short_name": "Bondhon",
+  "start_url": "index.html",
+  "display": "standalone",
+  "background_color": "#f8fafc",
+  "theme_color": "#059669",
+  "icons": [
+    {
+      "src": "https://cdn-icons-png.flaticon.com/512/3145/3145295.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
