@@ -4,86 +4,126 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Bondhon Enterprise | Mobile Premium</title>
-    <link rel="stylesheet" href="style.css">
+    
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#059669">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-</head>
-<body class="bg-slate-50 text-slate-900 font-siliguri">
+    <link href="https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
 
-    <nav class="nav-glass sticky top-0 z-50 px-4 py-3 border-b border-slate-200">
+    <style>
+        body { font-family: 'Hind Siliguri', sans-serif; -webkit-tap-highlight-color: transparent; }
+        .nav-glass { background: rgba(255, 255, 255, 0.8); backdrop-filter: blur(12px); border-bottom: 1px solid rgba(0,0,0,0.05); }
+        .scale-in { animation: scaleIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
+        @keyframes scaleIn { from { transform: scale(0.95); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+        /* Hide scrollbar for Chrome, Safari and Opera */
+        ::-webkit-scrollbar { display: none; }
+    </style>
+</head>
+
+<body class="bg-[#f8fafc] text-slate-900 pb-24 select-none">
+
+    <nav class="nav-glass sticky top-0 z-50 px-4 py-3">
         <div class="max-w-7xl mx-auto flex justify-between items-center">
             <div class="flex items-center gap-2">
-                <div class="bg-gradient-to-br from-green-600 to-green-800 p-2 rounded-xl shadow-lg">
-                    <i class="fas fa-handshake text-white text-lg"></i>
+                <div class="bg-emerald-600 p-2 rounded-xl shadow-lg shadow-emerald-200">
+                    <i class="fas fa-leaf text-white text-lg"></i>
                 </div>
                 <div>
-                    <h1 class="text-lg md:text-2xl font-black text-slate-800">বন্ধন <span class="text-green-600">এন্টারপ্রাইজ</span></h1>
+                    <h1 class="text-xl font-black text-slate-800 tracking-tight">বন্ধন <span class="text-emerald-600">এন্টারপ্রাইজ</span></h1>
                 </div>
             </div>
-            <div class="flex gap-2">
-                <button onclick="openModal('binModal')" class="bg-slate-100 text-slate-600 p-2.5 rounded-xl border border-slate-200">
-                    <i class="fas fa-trash-restore"></i>
-                </button>
-                <button onclick="openModal('customerModal')" class="bg-green-600 text-white px-4 py-2.5 rounded-xl font-bold shadow-lg flex items-center gap-2">
-                    <i class="fas fa-plus"></i> <span class="hidden md:inline">নতুন কাস্টমার</span>
-                </button>
-            </div>
+            <button onclick="openModal('binModal')" class="w-10 h-10 flex items-center justify-center bg-white text-slate-500 rounded-full border border-slate-100 shadow-sm active:bg-slate-50">
+                <i class="fas fa-trash-alt text-sm"></i>
+            </button>
         </div>
     </nav>
 
-    <main class="max-w-7xl mx-auto px-3 py-6">
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-            <div class="stat-card bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
-                <p class="text-slate-400 text-[10px] font-bold uppercase mb-1">মোট কাস্টমার</p>
+    <main class="max-w-7xl mx-auto px-4 py-6">
+        <div class="grid grid-cols-2 gap-3 mb-8">
+            <div class="bg-white p-5 rounded-[2rem] shadow-sm border border-slate-50">
+                <div class="flex items-center gap-3 mb-3">
+                    <div class="w-8 h-8 bg-blue-50 text-blue-500 rounded-lg flex items-center justify-center"><i class="fas fa-users text-xs"></i></div>
+                    <p class="text-slate-400 text-[10px] font-black uppercase">কাস্টমার</p>
+                </div>
                 <h2 id="totalCust" class="text-2xl font-black text-slate-800">0</h2>
             </div>
-            <div class="stat-card bg-white p-4 rounded-2xl border-l-4 border-l-orange-500 shadow-sm">
-                <p class="text-orange-400 text-[10px] font-bold uppercase mb-1">মোট সুপারি</p>
+            <div class="bg-white p-5 rounded-[2rem] shadow-sm border border-slate-50">
+                <div class="flex items-center gap-3 mb-3">
+                    <div class="w-8 h-8 bg-orange-50 text-orange-500 rounded-lg flex items-center justify-center"><i class="fas fa-box text-xs"></i></div>
+                    <p class="text-slate-400 text-[10px] font-black uppercase">সুপারি (পিস)</p>
+                </div>
                 <h2 id="totalQty" class="text-2xl font-black text-slate-800">0</h2>
             </div>
-            <div class="stat-card bg-white p-4 rounded-2xl border-l-4 border-l-rose-500 shadow-sm">
-                <p class="text-rose-400 text-[10px] font-bold uppercase mb-1">মোট বাকি</p>
-                <h2 id="totalDue" class="text-2xl font-black text-rose-600">৳0</h2>
+            <div class="bg-rose-500 p-5 rounded-[2rem] shadow-lg shadow-rose-100">
+                <p class="text-rose-100 text-[10px] font-black uppercase mb-1">মোট বাকি</p>
+                <h2 id="totalDue" class="text-2xl font-black text-white">৳০</h2>
             </div>
-            <div class="stat-card bg-green-600 p-4 rounded-2xl shadow-lg">
-                <p class="text-green-100 text-[10px] font-bold uppercase mb-1">নগদ আদায়</p>
-                <h2 id="totalCash" class="text-2xl font-black text-white">৳0</h2>
+            <div class="bg-emerald-600 p-5 rounded-[2rem] shadow-lg shadow-emerald-100">
+                <p class="text-emerald-100 text-[10px] font-black uppercase mb-1">মোট জমা</p>
+                <h2 id="totalCash" class="text-2xl font-black text-white">৳০</h2>
             </div>
         </div>
 
-        <div class="bg-white rounded-3xl border border-slate-100 shadow-xl overflow-hidden">
-            <div class="p-5 border-b flex flex-col md:flex-row justify-between items-center gap-4">
-                <h3 class="text-xl font-bold text-slate-800">কাস্টমার তালিকা</h3>
-                <div class="relative w-full md:w-80">
-                    <i class="fas fa-search absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"></i>
-                    <input type="text" id="search" onkeyup="filterTable()" placeholder="খুঁজুন..." class="w-full pl-11 pr-4 py-3 rounded-xl bg-slate-100 outline-none focus:ring-2 focus:ring-green-500">
-                </div>
+        <div class="relative mb-6">
+            <i class="fas fa-search absolute left-5 top-1/2 -translate-y-1/2 text-slate-300 text-sm"></i>
+            <input type="text" id="search" onkeyup="filterTable()" placeholder="কাস্টমার খুঁজুন..." class="w-full pl-12 pr-6 py-4 rounded-2xl bg-white border border-slate-100 shadow-sm outline-none focus:ring-2 focus:ring-emerald-500 transition-all">
+        </div>
+
+        <div class="bg-white rounded-[2.5rem] shadow-sm border border-slate-50 overflow-hidden">
+            <div class="p-6 border-b border-slate-50 flex justify-between items-center">
+                <h3 class="text-lg font-black text-slate-800">কাস্টমার তালিকা</h3>
+                <span class="bg-emerald-100 text-emerald-600 text-[10px] px-3 py-1 rounded-full font-bold uppercase">Online</span>
             </div>
             <div class="overflow-x-auto">
                 <table class="w-full text-left">
-                    <thead class="bg-slate-50">
-                        <tr>
-                            <th class="p-4 text-slate-500 font-bold text-xs">নাম</th>
-                            <th class="p-4 text-center text-slate-500 font-bold text-xs uppercase">বাকি</th>
-                            <th class="p-4 text-center text-slate-500 font-bold text-xs uppercase">অ্যাকশন</th>
-                        </tr>
-                    </thead>
-                    <tbody id="customerTable" class="divide-y divide-slate-50"></tbody>
+                    <tbody id="customerTable" class="divide-y divide-slate-50">
+                        </tbody>
                 </table>
             </div>
         </div>
     </main>
 
-    <div id="customerModal" class="modal-overlay fixed inset-0 bg-slate-900/60 backdrop-blur-sm hidden z-[100] flex items-end md:items-center justify-center">
-        <div class="bg-white rounded-t-[2rem] md:rounded-[2rem] w-full max-w-md p-8 shadow-2xl scale-in">
+    <button onclick="openModal('customerModal')" class="fixed bottom-24 right-6 w-14 h-14 bg-emerald-600 text-white rounded-2xl shadow-2xl shadow-emerald-300 flex items-center justify-center z-40 active:scale-90 transition-transform">
+        <i class="fas fa-plus text-xl"></i>
+    </button>
+
+    <div class="fixed bottom-0 left-0 right-0 bg-white/80 backdrop-blur-xl border-t border-slate-100 px-8 py-4 flex justify-between items-center z-50">
+        <button onclick="window.scrollTo({top: 0, behavior: 'smooth'})" class="flex flex-col items-center gap-1 text-emerald-600">
+            <i class="fas fa-home text-xl"></i>
+            <span class="text-[10px] font-bold">হোম</span>
+        </button>
+        <button onclick="openModal('customerModal')" class="flex flex-col items-center gap-1 text-slate-400">
+            <i class="fas fa-user-plus text-xl"></i>
+            <span class="text-[10px] font-bold">নতুন</span>
+        </button>
+        <button onclick="openModal('binModal')" class="flex flex-col items-center gap-1 text-slate-400">
+            <i class="fas fa-history text-xl"></i>
+            <span class="text-[10px] font-bold">বিন</span>
+        </button>
+    </div>
+
+    <div id="customerModal" class="modal-overlay fixed inset-0 bg-slate-900/60 backdrop-blur-md hidden z-[100] flex items-end md:items-center justify-center">
+        <div class="bg-white rounded-t-[3rem] md:rounded-[2rem] w-full max-w-md p-8 shadow-2xl scale-in pb-12">
+            <div class="w-12 h-1.5 bg-slate-200 rounded-full mx-auto mb-6 md:hidden"></div>
             <h3 class="text-2xl font-black mb-1 text-slate-800">নতুন কাস্টমার</h3>
-            <p class="text-slate-400 mb-6 text-xs uppercase tracking-widest font-bold">প্রোফাইল তৈরি করুন</p>
+            <p class="text-slate-400 mb-8 text-xs font-bold uppercase tracking-widest">প্রোফাইল তৈরি করুন</p>
             <div class="space-y-4">
-                <input type="text" id="name" placeholder="কাস্টমারের নাম" class="w-full bg-slate-100 p-4 rounded-xl outline-none ring-1 ring-slate-200 focus:ring-2 focus:ring-green-500">
-                <input type="text" id="phone" placeholder="মোবাইল নম্বর" class="w-full bg-slate-100 p-4 rounded-xl outline-none ring-1 ring-slate-200 focus:ring-2 focus:ring-green-500">
-                <div class="flex gap-3 mt-4">
-                    <button onclick="closeModal('customerModal')" class="flex-1 py-4 text-slate-500 font-bold">বাতিল</button>
-                    <button onclick="saveCustomer()" class="flex-1 bg-green-600 text-white py-4 rounded-xl font-black shadow-lg">সেভ করুন</button>
+                <div class="relative">
+                    <i class="fas fa-user absolute left-4 top-1/2 -translate-y-1/2 text-slate-300"></i>
+                    <input type="text" id="name" placeholder="নাম লিখুন" class="w-full bg-slate-50 pl-12 pr-4 py-4 rounded-2xl border-none ring-1 ring-slate-100 focus:ring-2 focus:ring-emerald-500 outline-none transition-all">
+                </div>
+                <div class="relative">
+                    <i class="fas fa-phone absolute left-4 top-1/2 -translate-y-1/2 text-slate-300"></i>
+                    <input type="number" id="phone" placeholder="মোবাইল নম্বর" class="w-full bg-slate-50 pl-12 pr-4 py-4 rounded-2xl border-none ring-1 ring-slate-100 focus:ring-2 focus:ring-emerald-500 outline-none transition-all">
+                </div>
+                <div class="flex gap-4 mt-6">
+                    <button onclick="closeModal('customerModal')" class="flex-1 py-4 text-slate-400 font-bold">বন্ধ</button>
+                    <button onclick="saveCustomer()" class="flex-1 bg-emerald-600 text-white py-4 rounded-2xl font-black shadow-lg">সেভ করুন</button>
                 </div>
             </div>
         </div>
@@ -91,31 +131,20 @@
 
     <div id="detailModal" class="modal-overlay fixed inset-0 bg-slate-900/60 backdrop-blur-md hidden z-[100] flex items-end md:items-center justify-center"></div>
 
-    <div id="binModal" class="modal-overlay fixed inset-0 bg-slate-900/40 backdrop-blur-sm hidden z-[100] flex items-center justify-center p-4">
-        <div class="bg-white rounded-[2rem] w-full max-w-lg p-6 shadow-2xl flex flex-col max-h-[70vh]">
-            <h3 class="text-xl font-black mb-4"><i class="fas fa-trash-restore text-orange-500 mr-2"></i>রিসাইকেল বিন</h3>
-            <div class="overflow-y-auto flex-1 border rounded-xl">
+    <div id="binModal" class="modal-overlay fixed inset-0 bg-slate-900/60 backdrop-blur-md hidden z-[100] flex items-center justify-center p-4">
+        <div class="bg-white rounded-[2.5rem] w-full max-w-lg p-6 shadow-2xl flex flex-col max-h-[70vh]">
+            <div class="flex justify-between items-center mb-6 px-2">
+                <h3 class="text-xl font-black text-slate-800 uppercase tracking-tighter"><i class="fas fa-trash-restore text-emerald-500 mr-2"></i>রিসাইকেল বিন</h3>
+                <button onclick="closeModal('binModal')" class="text-slate-300 hover:text-rose-500 transition-colors"><i class="fas fa-times-circle text-2xl"></i></button>
+            </div>
+            <div class="overflow-y-auto flex-1 bg-slate-50 rounded-2xl border border-slate-100">
                 <table class="w-full">
-                    <tbody id="binTable" class="divide-y"></tbody>
+                    <tbody id="binTable" class="divide-y divide-slate-100"></tbody>
                 </table>
             </div>
-            <button onclick="closeModal('binModal')" class="mt-4 w-full py-3 bg-slate-100 rounded-xl font-bold">বন্ধ করুন</button>
         </div>
     </div>
 
     <script src="script.js"></script>
 </body>
 </html>
-<div id="deleteConfirmModal" class="modal-overlay fixed inset-0 bg-slate-900/60 backdrop-blur-sm hidden z-[110] flex items-center justify-center p-4">
-    <div class="bg-white rounded-[2rem] w-full max-w-xs p-6 shadow-2xl scale-in text-center">
-        <div class="w-16 h-16 bg-rose-100 text-rose-500 rounded-full flex items-center justify-center mx-auto mb-4">
-            <i class="fas fa-trash-alt text-2xl"></i>
-        </div>
-        <h3 class="text-xl font-black text-slate-800 mb-2">আপনি কি নিশ্চিত?</h3>
-        <p class="text-slate-500 text-sm mb-6">এটি ডিলিট করলে আর ফিরে পাওয়া যাবে না।</p>
-        <div class="flex gap-3">
-            <button onclick="closeModal('deleteConfirmModal')" class="flex-1 py-3 bg-slate-100 text-slate-600 rounded-xl font-bold">না</button>
-            <button id="finalDeleteBtn" class="flex-1 py-3 bg-rose-500 text-white rounded-xl font-bold shadow-lg shadow-rose-100">হ্যাঁ, মুছুন</button>
-        </div>
-    </div>
-</div>
