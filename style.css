@@ -1,116 +1,140 @@
+/* ১. গুগল ফন্ট এবং ভেরিয়েবল */
 @import url('https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@300;400;500;600;700&display=swap');
 
 :root {
     --primary: #10b981;
-    --primary-light: #d1fae5;
     --primary-dark: #065f46;
     --bg-light: #f1f5f9;
     --card-bg: #ffffff;
     --text-main: #0f172a;
     --text-muted: #64748b;
-    --danger: #ff4757;
-    --shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.05);
+    --danger: #ef4444;
+    --shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05);
 }
 
-/* ডার্ক মোড পুরোপুরি রিমুভ করা হয়েছে */
+/* ২. অটো ডার্ক মোড লজিক */
+@media (prefers-color-scheme: dark) {
+    :root {
+        --bg-light: #0f172a;
+        --card-bg: #1e293b;
+        --text-main: #f1f5f9;
+        --text-muted: #94a3b8;
+        --shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3);
+    }
+}
 
+/* ৩. জেনারেল স্টাইল */
 * {
     margin: 0;
     padding: 0;
     box-sizing: border-box;
-    scroll-behavior: smooth;
+    font-family: 'Hind Siliguri', sans-serif;
+    -webkit-tap-highlight-color: transparent;
 }
 
 body {
-    font-family: 'Hind Siliguri', sans-serif;
     background-color: var(--bg-light);
     color: var(--text-main);
-    -webkit-tap-highlight-color: transparent;
     line-height: 1.6;
-    overflow-x: hidden;
-    /* কিবোর্ড ওপেন হলে যাতে স্ক্রিন কাঁপাকাঁপি না করে */
-    overscroll-behavior-y: contain;
+    transition: background-color 0.3s ease;
 }
 
-/* নেভিগেশন */
-.nav-glass {
-    background: rgba(255, 255, 255, 0.95);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    border-bottom: 1px solid rgba(0, 0, 0, 0.05);
-    z-index: 50;
-}
-
-/* স্ট্যাট কার্ড */
+/* ৪. কার্ড এবং কন্টেইনার */
 .stat-card {
     background: var(--card-bg);
-    border-radius: 28px;
-    border: 1px solid rgba(0, 0, 0, 0.02);
+    border-radius: 24px;
+    padding: 1.5rem;
     box-shadow: var(--shadow);
-    transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    border: 1px solid rgba(255, 255, 255, 0.05);
 }
 
-.stat-card:active {
-    transform: scale(0.96);
-}
-
-/* বাটন */
-button {
-    cursor: pointer;
-    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-button:active {
-    transform: scale(0.92);
-}
-
-/* ইনপুট - টাইপিং ফিক্স সহ */
+/* ৫. ইনপুট বক্স স্টাইল */
 input {
-    background: #f8fafc !important; /* হালকা সলিড ব্যাকগ্রাউন্ড */
-    border: 2px solid #e2e8f0 !important;
-    color: #0f172a !important;
-    font-size: 16px !important; /* iOS জুম ইন সমস্যা প্রতিরোধের জন্য */
-    transition: all 0.3s ease !important;
+    background: var(--card-bg) !important;
+    border: 2px solid rgba(0,0,0,0.05) !important;
+    color: var(--text-main) !important;
+    border-radius: 16px;
+    padding: 12px 16px;
+    width: 100%;
+    outline: none;
+    transition: all 0.3s ease;
+    z-index: 1;
     position: relative;
-    z-index: 101;
 }
 
 input:focus {
-    background: #ffffff !important;
     border-color: var(--primary) !important;
-    box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.1) !important;
-    outline: none;
+    box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.1);
 }
 
-/* মডাল ওভারলে - কিবোর্ড ভ্যানিশ সমস্যার জন্য ব্লার কমানো হয়েছে */
+/* ৬. আইফোন স্টাইল মডাল এবং ব্লার ওভারলে (আপডেটেড) */
 .modal-overlay {
-    background: rgba(15, 23, 42, 0.7) !important;
-    backdrop-filter: blur(4px) !important;
-    -webkit-backdrop-filter: blur(4px) !important;
-    transition: opacity 0.3s ease;
+    background: rgba(0, 0, 0, 0.4) !important; /* হালকা অন্ধকার আবহাওয়া */
+    backdrop-filter: blur(15px) saturate(180%) !important; /* আসল আইফোন ব্লার */
+    -webkit-backdrop-filter: blur(15px) saturate(180%) !important;
+    z-index: 1000 !important;
+    display: flex;
+    align-items: flex-end; /* পপআপ নিচ থেকে আসবে */
+    justify-content: center;
+    transition: opacity 0.4s ease;
 }
 
-/* মডাল অ্যানিমেশন */
+/* iOS কার্ড ডিজাইন */
+.ios-card {
+    background: rgba(255, 255, 255, 0.8) !important; /* স্বচ্ছ গ্লাস লুক */
+    backdrop-filter: blur(30px) saturate(200%);
+    -webkit-backdrop-filter: blur(30px) saturate(200%);
+    border-radius: 32px 32px 0 0; /* উপরে রাউন্ড, নিচে সোজা */
+    width: 100%;
+    max-width: 550px;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    box-shadow: 0 -10px 40px rgba(0,0,0,0.1);
+}
+
+@media (prefers-color-scheme: dark) {
+    .ios-card {
+        background: rgba(30, 30, 32, 0.75) !important;
+        border-top: 1px solid rgba(255, 255, 255, 0.1);
+    }
+}
+
+/* ৭. iOS স্প্রিং অ্যানিমেশন (নিচ থেকে উপরে স্লাইড) */
 .scale-in {
-    animation: slideUp 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
-    background: #ffffff !important;
-    z-index: 105;
+    animation: ios-spring 0.5s cubic-bezier(0.32, 0.72, 0, 1) forwards;
+    z-index: 1001 !important;
 }
 
-@keyframes slideUp {
-    from { transform: translateY(100px); opacity: 0; }
-    to { transform: translateY(0); opacity: 1; }
+@keyframes ios-spring {
+    0% { transform: translateY(100%); opacity: 0; }
+    100% { transform: translateY(0); opacity: 1; }
 }
 
-/* কাস্টম স্ক্রলবার হাইড */
+/* ৮. বাটন এবং অন্যান্য */
+button:active {
+    transform: scale(0.95);
+}
+
+.btn-primary {
+    background: var(--primary);
+    color: white;
+    padding: 12px 24px;
+    border-radius: 16px;
+    font-weight: 700;
+}
+
+#customerTable tr:active {
+    background: rgba(16, 185, 129, 0.05);
+}
+
+/* ডিলিট কনফার্মেশন বিশেষ স্টাইল */
+#deleteConfirmInput {
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    border-color: #fee2e2 !important;
+    text-align: center;
+}
+
+/* স্ক্রলবার হাইড */
 ::-webkit-scrollbar {
-    width: 0px;
     display: none;
-}
-
-/* প্রিন্ট সেটিং */
-@media print {
-    .no-print, .fixed, button, .fab { display: none !important; }
-    body { background: white; color: black; }
-    .stat-card { border: 1px solid #eee; box-shadow: none; border-radius: 10px; }
 }
