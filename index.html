@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, interactive-widget=resizes-content">
-    <title>Bondhon Enterprise | Mobile Premium</title>
+    <title>Bondhon Enterprise | Premium</title>
     
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#059669">
@@ -14,30 +14,15 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
+    
+    <script src="https://unpkg.com/dexie/dist/dexie.js"></script>
 
     <style>
         body { 
             font-family: 'Hind Siliguri', sans-serif; 
             -webkit-tap-highlight-color: transparent; 
-            overscroll-behavior-y: contain; /* Prevents unwanted refresh while scrolling */
+            overscroll-behavior-y: contain; 
         }
-        .nav-glass { 
-            background: rgba(255, 255, 255, 0.95); 
-            backdrop-filter: blur(12px); 
-            border-bottom: 1px solid rgba(0,0,0,0.05); 
-        }
-        .scale-in { animation: scaleIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
-        @keyframes scaleIn { from { transform: scale(0.95); opacity: 0; } to { transform: scale(1); opacity: 1; } }
-        
-        /* Fixed vanish issue: Ensuring inputs stay solid and visible */
-        input:focus {
-            background-color: #ffffff !important;
-            z-index: 1000;
-            position: relative;
-        }
-        
-        /* Hide scrollbar */
-        ::-webkit-scrollbar { display: none; }
     </style>
 </head>
 
@@ -61,25 +46,25 @@
 
     <main class="max-w-7xl mx-auto px-4 py-6">
         <div class="grid grid-cols-2 gap-3 mb-8">
-            <div class="bg-white p-5 rounded-[2rem] shadow-sm border border-slate-50">
+            <div class="bg-white p-5 rounded-[2rem] shadow-sm border border-slate-50 stat-card">
                 <div class="flex items-center gap-3 mb-3">
                     <div class="w-8 h-8 bg-blue-50 text-blue-500 rounded-lg flex items-center justify-center"><i class="fas fa-users text-xs"></i></div>
                     <p class="text-slate-400 text-[10px] font-black uppercase">কাস্টমার</p>
                 </div>
                 <h2 id="totalCust" class="text-2xl font-black text-slate-800">0</h2>
             </div>
-            <div class="bg-white p-5 rounded-[2rem] shadow-sm border border-slate-50">
+            <div class="bg-white p-5 rounded-[2rem] shadow-sm border border-slate-50 stat-card">
                 <div class="flex items-center gap-3 mb-3">
                     <div class="w-8 h-8 bg-orange-50 text-orange-500 rounded-lg flex items-center justify-center"><i class="fas fa-box text-xs"></i></div>
-                    <p class="text-slate-400 text-[10px] font-black uppercase">সুপারি (পিস)</p>
+                    <p class="text-slate-400 text-[10px] font-black uppercase">সুপারি</p>
                 </div>
                 <h2 id="totalQty" class="text-2xl font-black text-slate-800">0</h2>
             </div>
-            <div class="bg-rose-500 p-5 rounded-[2rem] shadow-lg shadow-rose-100">
+            <div class="bg-rose-500 p-5 rounded-[2rem] shadow-lg">
                 <p class="text-rose-100 text-[10px] font-black uppercase mb-1">মোট বাকি</p>
                 <h2 id="totalDue" class="text-2xl font-black text-white">৳০</h2>
             </div>
-            <div class="bg-emerald-600 p-5 rounded-[2rem] shadow-lg shadow-emerald-100">
+            <div class="bg-emerald-600 p-5 rounded-[2rem] shadow-lg">
                 <p class="text-emerald-100 text-[10px] font-black uppercase mb-1">মোট জমা</p>
                 <h2 id="totalCash" class="text-2xl font-black text-white">৳০</h2>
             </div>
@@ -87,13 +72,18 @@
 
         <div class="relative mb-6">
             <i class="fas fa-search absolute left-5 top-1/2 -translate-y-1/2 text-slate-300 text-sm"></i>
-            <input type="text" id="search" onkeyup="filterTable()" placeholder="কাস্টমার খুঁজুন..." class="w-full pl-12 pr-6 py-4 rounded-2xl bg-white border border-slate-100 shadow-sm outline-none focus:ring-2 focus:ring-emerald-500 transition-all">
+            <input type="text" id="search" onkeyup="filterTable()" placeholder="কাস্টমার খুঁজুন..." class="w-full pl-12 pr-12 py-4 rounded-2xl bg-white border border-slate-100 shadow-sm outline-none focus:ring-2 focus:ring-emerald-500 transition-all text-slate-700">
+            <button onclick="startVoiceInput()" class="absolute right-4 top-1/2 -translate-y-1/2 text-emerald-500 p-2">
+                <i class="fas fa-microphone text-lg"></i>
+            </button>
         </div>
 
-        <div class="bg-white rounded-[2.5rem] shadow-sm border border-slate-50 overflow-hidden">
+        <div class="bg-white rounded-[2.5rem] shadow-sm border border-slate-50 overflow-hidden stat-card">
             <div class="p-6 border-b border-slate-50 flex justify-between items-center">
-                <h3 class="text-lg font-black text-slate-800">কাস্টমার তালিকা</h3>
-                <span class="bg-emerald-100 text-emerald-600 text-[10px] px-3 py-1 rounded-full font-bold uppercase">Online</span>
+                <h3 class="text-lg font-black text-slate-800">তালিকা</h3>
+                <div class="bg-emerald-100 text-emerald-600 text-[10px] px-3 py-1 rounded-full font-bold uppercase tracking-tighter flex items-center gap-1">
+                    <span class="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse"></span> Online
+                </div>
             </div>
             <div class="overflow-x-auto">
                 <table class="w-full text-left">
@@ -103,7 +93,7 @@
         </div>
     </main>
 
-    <button onclick="openModal('customerModal')" class="fixed bottom-24 right-6 w-14 h-14 bg-emerald-600 text-white rounded-2xl shadow-2xl shadow-emerald-300 flex items-center justify-center z-40 active:scale-90 transition-transform">
+    <button onclick="openModal('customerModal')" class="fixed bottom-24 right-6 w-14 h-14 bg-emerald-600 text-white rounded-2xl shadow-2xl flex items-center justify-center z-40 active:scale-90 transition-transform">
         <i class="fas fa-plus text-xl"></i>
     </button>
 
@@ -122,21 +112,14 @@
         </button>
     </div>
 
-    <div id="customerModal" class="modal-overlay fixed inset-0 bg-slate-900/60 backdrop-blur-sm hidden z-[100] flex items-end md:items-center justify-center">
-        <div class="bg-white rounded-t-[3rem] md:rounded-[2rem] w-full max-w-md p-8 shadow-2xl scale-in pb-12">
-            <div class="w-12 h-1.5 bg-slate-200 rounded-full mx-auto mb-6 md:hidden"></div>
-            <h3 class="text-2xl font-black mb-1 text-slate-800">নতুন কাস্টমার</h3>
-            <p class="text-slate-400 mb-8 text-xs font-bold uppercase tracking-widest">প্রোফাইল তৈরি করুন</p>
+    <div id="customerModal" class="modal-overlay fixed inset-0 hidden z-[100] flex items-end justify-center">
+        <div class="ios-card w-full p-8 scale-in pb-12">
+            <div class="w-12 h-1.5 bg-slate-300/50 rounded-full mx-auto mb-6"></div> <h3 class="text-2xl font-black text-slate-800">নতুন কাস্টমার</h3>
+            <p class="text-slate-400 mb-6 text-xs font-bold uppercase">প্রোফাইল তৈরি করুন</p>
             <div class="space-y-4">
-                <div class="relative">
-                    <i class="fas fa-user absolute left-4 top-1/2 -translate-y-1/2 text-slate-300"></i>
-                    <input type="text" id="name" placeholder="নাম লিখুন" class="w-full bg-slate-50 pl-12 pr-4 py-4 rounded-2xl border-none ring-1 ring-slate-100 focus:ring-2 focus:ring-emerald-500 outline-none transition-all">
-                </div>
-                <div class="relative">
-                    <i class="fas fa-phone absolute left-4 top-1/2 -translate-y-1/2 text-slate-300"></i>
-                    <input type="number" id="phone" placeholder="মোবাইল নম্বর" class="w-full bg-slate-50 pl-12 pr-4 py-4 rounded-2xl border-none ring-1 ring-slate-100 focus:ring-2 focus:ring-emerald-500 outline-none transition-all">
-                </div>
-                <div class="flex gap-4 mt-6">
+                <input type="text" id="name" placeholder="কাস্টমারের নাম" class="w-full bg-slate-100/50 px-6 py-4 rounded-2xl border-none outline-none focus:ring-2 focus:ring-emerald-500">
+                <input type="number" id="phone" placeholder="মোবাইল নম্বর" class="w-full bg-slate-100/50 px-6 py-4 rounded-2xl border-none outline-none focus:ring-2 focus:ring-emerald-500">
+                <div class="flex gap-4 pt-4">
                     <button onclick="closeModal('customerModal')" class="flex-1 py-4 text-slate-400 font-bold">বন্ধ</button>
                     <button onclick="saveCustomer()" class="flex-1 bg-emerald-600 text-white py-4 rounded-2xl font-black shadow-lg">সেভ করুন</button>
                 </div>
@@ -144,23 +127,46 @@
         </div>
     </div>
 
-    <div id="detailModal" class="modal-overlay fixed inset-0 bg-slate-900/60 backdrop-blur-sm hidden z-[100] flex items-end md:items-center justify-center"></div>
+    <div id="detailModal" class="modal-overlay fixed inset-0 hidden z-[100] flex items-end justify-center overflow-hidden">
+        </div>
 
-    <div id="binModal" class="modal-overlay fixed inset-0 bg-slate-900/60 backdrop-blur-sm hidden z-[100] flex items-center justify-center p-4">
-        <div class="bg-white rounded-[2.5rem] w-full max-w-lg p-6 shadow-2xl flex flex-col max-h-[70vh]">
+    <div id="binModal" class="modal-overlay fixed inset-0 hidden z-[100] flex items-end justify-center">
+        <div class="ios-card w-full p-6 scale-in flex flex-col max-h-[85vh]">
+            <div class="w-12 h-1.5 bg-slate-300/50 rounded-full mx-auto mb-6"></div>
             <div class="flex justify-between items-center mb-6 px-2">
-                <h3 class="text-xl font-black text-slate-800 uppercase tracking-tighter"><i class="fas fa-trash-restore text-emerald-500 mr-2"></i>রিসাইকেল বিন</h3>
-                <button onclick="closeModal('binModal')" class="text-slate-300 hover:text-rose-500 transition-colors"><i class="fas fa-times-circle text-2xl"></i></button>
+                <h3 class="text-xl font-black text-slate-800 tracking-tighter uppercase">রিসাইকেল বিন</h3>
+                <button onclick="closeModal('binModal')" class="text-slate-400 text-2xl">&times;</button>
             </div>
-            <div class="overflow-y-auto flex-1 bg-slate-50 rounded-2xl border border-slate-100">
+            <div class="overflow-y-auto flex-1 bg-slate-50/50 rounded-3xl p-2">
                 <table class="w-full"><tbody id="binTable" class="divide-y divide-slate-100"></tbody></table>
             </div>
+            <button onclick="closeModal('binModal')" class="mt-4 w-full py-4 bg-slate-100 text-slate-600 rounded-2xl font-black">বন্ধ করুন</button>
         </div>
     </div>
 
     <script src="script.js"></script>
     <script>
-        // Critical Fix for Input Vanishing
+        // আইফোন স্টাইল মডাল কন্ট্রোল
+        function openModal(id) {
+            const modal = document.getElementById(id);
+            modal.classList.remove('hidden');
+            modal.style.opacity = "0";
+            setTimeout(() => { modal.style.opacity = "1"; }, 10);
+            
+            if(id === 'binModal') renderBin();
+            if(typeof vibrate === "function") vibrate(); 
+        }
+
+        function closeModal(id) {
+            const modal = document.getElementById(id);
+            modal.style.opacity = "0";
+            // ৪০০০ মিলিসেকেন্ড ট্রানজিশন শেষ হওয়ার পর হাইড করা
+            setTimeout(() => {
+                modal.classList.add('hidden');
+            }, 400);
+        }
+
+        // ইনপুট স্ক্রল ফিক্স
         document.querySelectorAll('input').forEach(input => {
             input.addEventListener('focus', () => {
                 setTimeout(() => {
