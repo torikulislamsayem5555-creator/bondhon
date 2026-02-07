@@ -6,172 +6,248 @@
     <title>Bondhon Enterprise | Premium</title>
     
     <link rel="manifest" href="manifest.json">
-    <meta name="theme-color" content="#059669">
+    <meta name="theme-color" content="#0d9488">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link href="https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
     
     <script src="https://unpkg.com/dexie/dist/dexie.js"></script>
-
-    <style>
-        body { 
-            font-family: 'Hind Siliguri', sans-serif; 
-            -webkit-tap-highlight-color: transparent; 
-            overscroll-behavior-y: contain; 
-        }
-    </style>
 </head>
 
-<body class="bg-[#f8fafc] text-slate-900 pb-24 select-none">
+<body class="app-body">
+    <div class="app-bg-pattern"></div>
 
-    <nav class="nav-glass sticky top-0 z-50 px-4 py-3">
-        <div class="max-w-7xl mx-auto flex justify-between items-center">
-            <div class="flex items-center gap-2">
-                <div class="bg-emerald-600 p-2 rounded-xl shadow-lg shadow-emerald-200">
-                    <i class="fas fa-leaf text-white text-lg"></i>
+    <nav class="nav-modern">
+        <div class="nav-inner">
+            <div class="flex items-center gap-3">
+                <div class="logo-icon">
+                    <i class="fas fa-leaf"></i>
                 </div>
                 <div>
-                    <h1 class="text-xl font-black text-slate-800 tracking-tight">বন্ধন <span class="text-emerald-600">এন্টারপ্রাইজ</span></h1>
+                    <h1 class="logo-text">বন্ধন <span class="logo-accent">এন্টারপ্রাইজ</span></h1>
+                    <p class="logo-sub">ক্রেডিট ম্যানেজমেন্ট</p>
                 </div>
             </div>
-            <button onclick="openModal('binModal')" class="w-10 h-10 flex items-center justify-center bg-white text-slate-500 rounded-full border border-slate-100 shadow-sm active:bg-slate-50">
-                <i class="fas fa-trash-alt text-sm"></i>
-            </button>
+            <div class="flex items-center gap-2">
+                <button onclick="openModal('binModal')" class="nav-btn" title="রিসাইকেল বিন">
+                    <i class="fas fa-trash-alt"></i>
+                </button>
+                <button onclick="openModal('settingsModal')" class="nav-btn" title="সেটিংস">
+                    <i class="fas fa-cog"></i>
+                </button>
+            </div>
         </div>
     </nav>
 
-    <main class="max-w-7xl mx-auto px-4 py-6">
-        <div class="grid grid-cols-2 gap-3 mb-8">
-            <div class="bg-white p-5 rounded-[2rem] shadow-sm border border-slate-50 stat-card">
-                <div class="flex items-center gap-3 mb-3">
-                    <div class="w-8 h-8 bg-blue-50 text-blue-500 rounded-lg flex items-center justify-center"><i class="fas fa-users text-xs"></i></div>
-                    <p class="text-slate-400 text-[10px] font-black uppercase">কাস্টমার</p>
+    <main class="main-content">
+        <section class="hero-stats">
+            <div class="stat-grid">
+                <div class="stat-card stat-card-1">
+                    <div class="stat-icon stat-icon-blue"><i class="fas fa-users"></i></div>
+                    <p class="stat-label">কাস্টমার</p>
+                    <h2 id="totalCust" class="stat-value">0</h2>
                 </div>
-                <h2 id="totalCust" class="text-2xl font-black text-slate-800">0</h2>
-            </div>
-            <div class="bg-white p-5 rounded-[2rem] shadow-sm border border-slate-50 stat-card">
-                <div class="flex items-center gap-3 mb-3">
-                    <div class="w-8 h-8 bg-orange-50 text-orange-500 rounded-lg flex items-center justify-center"><i class="fas fa-box text-xs"></i></div>
-                    <p class="text-slate-400 text-[10px] font-black uppercase">সুপারি</p>
+                <div class="stat-card stat-card-2">
+                    <div class="stat-icon stat-icon-orange"><i class="fas fa-box"></i></div>
+                    <p class="stat-label">সুপারি</p>
+                    <h2 id="totalQty" class="stat-value">0</h2>
                 </div>
-                <h2 id="totalQty" class="text-2xl font-black text-slate-800">0</h2>
+                <div class="stat-card stat-card-due">
+                    <div class="stat-glow"></div>
+                    <p class="stat-label-light">মোট বাকি</p>
+                    <h2 id="totalDue" class="stat-value-light">৳০</h2>
+                </div>
+                <div class="stat-card stat-card-cash">
+                    <div class="stat-glow"></div>
+                    <p class="stat-label-light">মোট জমা</p>
+                    <h2 id="totalCash" class="stat-value-light">৳০</h2>
+                </div>
             </div>
-            <div class="bg-rose-500 p-5 rounded-[2rem] shadow-lg">
-                <p class="text-rose-100 text-[10px] font-black uppercase mb-1">মোট বাকি</p>
-                <h2 id="totalDue" class="text-2xl font-black text-white">৳০</h2>
-            </div>
-            <div class="bg-emerald-600 p-5 rounded-[2rem] shadow-lg">
-                <p class="text-emerald-100 text-[10px] font-black uppercase mb-1">মোট জমা</p>
-                <h2 id="totalCash" class="text-2xl font-black text-white">৳০</h2>
-            </div>
-        </div>
+        </section>
 
-        <div class="relative mb-6">
-            <i class="fas fa-search absolute left-5 top-1/2 -translate-y-1/2 text-slate-300 text-sm"></i>
-            <input type="text" id="search" onkeyup="filterTable()" placeholder="কাস্টমার খুঁজুন..." class="w-full pl-12 pr-12 py-4 rounded-2xl bg-white border border-slate-100 shadow-sm outline-none focus:ring-2 focus:ring-emerald-500 transition-all text-slate-700">
-            <button onclick="startVoiceInput()" class="absolute right-4 top-1/2 -translate-y-1/2 text-emerald-500 p-2">
-                <i class="fas fa-microphone text-lg"></i>
-            </button>
-        </div>
+        <section class="search-section">
+            <div class="search-wrapper">
+                <i class="fas fa-search search-icon"></i>
+                <input type="text" id="search" onkeyup="filterTable()" placeholder="কাস্টমার খুঁজুন..." class="search-input">
+                <button onclick="startVoiceInput()" class="search-voice" title="ভয়েসে খুঁজুন">
+                    <i class="fas fa-microphone"></i>
+                </button>
+            </div>
+            <select id="sortSelect" onchange="applySort()" class="sort-select">
+                <option value="newest">নতুন আগে</option>
+                <option value="oldest">পুরনো আগে</option>
+                <option value="name">নাম অনুযায়ী</option>
+                <option value="dueHigh">বাকি বেশি</option>
+                <option value="dueLow">বাকি কম</option>
+            </select>
+        </section>
 
-        <div class="bg-white rounded-[2.5rem] shadow-sm border border-slate-50 overflow-hidden stat-card">
-            <div class="p-6 border-b border-slate-50 flex justify-between items-center">
-                <h3 class="text-lg font-black text-slate-800">তালিকা</h3>
-                <div class="bg-emerald-100 text-emerald-600 text-[10px] px-3 py-1 rounded-full font-bold uppercase tracking-tighter flex items-center gap-1">
-                    <span class="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse"></span> Online
+        <section class="list-section">
+            <div class="list-card">
+                <div class="list-header">
+                    <h3 class="list-title">কাস্টমার তালিকা</h3>
+                    <div class="list-actions">
+                        <div id="statusBadge" class="status-badge status-online">
+                            <span class="status-dot"></span> Online
+                        </div>
+                        <button onclick="openModal('reportModal')" class="action-btn" title="রিপোর্ট">
+                            <i class="fas fa-chart-pie"></i>
+                        </button>
+                        <div class="dropdown-wrap">
+                            <button onclick="toggleExportMenu()" class="action-btn" title="এক্সপোর্ট">
+                                <i class="fas fa-download"></i>
+                            </button>
+                            <div id="exportMenu" class="dropdown-menu hidden">
+                                <button onclick="exportCSV()" class="dropdown-item"><i class="fas fa-file-csv"></i> CSV</button>
+                                <button onclick="exportJSON()" class="dropdown-item"><i class="fas fa-file-code"></i> JSON</button>
+                                <button onclick="printReport()" class="dropdown-item"><i class="fas fa-print"></i> প্রিন্ট</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="list-body">
+                    <table class="w-full"><tbody id="customerTable" class="customer-table"></tbody></table>
                 </div>
             </div>
-            <div class="overflow-x-auto">
-                <table class="w-full text-left">
-                    <tbody id="customerTable" class="divide-y divide-slate-50"></tbody>
-                </table>
-            </div>
-        </div>
+        </section>
     </main>
 
-    <button onclick="openModal('customerModal')" class="fixed bottom-24 right-6 w-14 h-14 bg-emerald-600 text-white rounded-2xl shadow-2xl flex items-center justify-center z-40 active:scale-90 transition-transform">
-        <i class="fas fa-plus text-xl"></i>
+    <button onclick="openAddCustomer()" class="fab">
+        <span class="fab-icon"><i class="fas fa-plus"></i></span>
+        <span class="fab-ripple"></span>
     </button>
 
-    <div class="fixed bottom-0 left-0 right-0 bg-white/80 backdrop-blur-xl border-t border-slate-100 px-8 py-4 flex justify-between items-center z-50">
-        <button onclick="window.scrollTo({top: 0, behavior: 'smooth'})" class="flex flex-col items-center gap-1 text-emerald-600">
-            <i class="fas fa-home text-xl"></i>
-            <span class="text-[10px] font-bold">হোম</span>
+    <nav class="bottom-nav">
+        <button onclick="scrollTopSmooth()" class="nav-item nav-active">
+            <i class="fas fa-home"></i>
+            <span>হোম</span>
         </button>
-        <button onclick="openModal('customerModal')" class="flex flex-col items-center gap-1 text-slate-400">
-            <i class="fas fa-user-plus text-xl"></i>
-            <span class="text-[10px] font-bold">নতুন</span>
+        <button onclick="openAddCustomer()" class="nav-item">
+            <i class="fas fa-user-plus"></i>
+            <span>নতুন</span>
         </button>
-        <button onclick="openModal('binModal')" class="flex flex-col items-center gap-1 text-slate-400">
-            <i class="fas fa-history text-xl"></i>
-            <span class="text-[10px] font-bold">বিন</span>
+        <button onclick="openModal('reportModal')" class="nav-item">
+            <i class="fas fa-chart-bar"></i>
+            <span>রিপোর্ট</span>
         </button>
-    </div>
+        <button onclick="openModal('binModal')" class="nav-item">
+            <i class="fas fa-history"></i>
+            <span>বিন</span>
+        </button>
+        <button onclick="openModal('settingsModal')" class="nav-item">
+            <i class="fas fa-cog"></i>
+            <span>সেটিংস</span>
+        </button>
+    </nav>
 
-    <div id="customerModal" class="modal-overlay fixed inset-0 hidden z-[100] flex items-end justify-center">
-        <div class="ios-card w-full p-8 scale-in pb-12">
-            <div class="w-12 h-1.5 bg-slate-300/50 rounded-full mx-auto mb-6"></div> <h3 class="text-2xl font-black text-slate-800">নতুন কাস্টমার</h3>
-            <p class="text-slate-400 mb-6 text-xs font-bold uppercase">প্রোফাইল তৈরি করুন</p>
-            <div class="space-y-4">
-                <input type="text" id="name" placeholder="কাস্টমারের নাম" class="w-full bg-slate-100/50 px-6 py-4 rounded-2xl border-none outline-none focus:ring-2 focus:ring-emerald-500">
-                <input type="number" id="phone" placeholder="মোবাইল নম্বর" class="w-full bg-slate-100/50 px-6 py-4 rounded-2xl border-none outline-none focus:ring-2 focus:ring-emerald-500">
-                <div class="flex gap-4 pt-4">
-                    <button onclick="closeModal('customerModal')" class="flex-1 py-4 text-slate-400 font-bold">বন্ধ</button>
-                    <button onclick="saveCustomer()" class="flex-1 bg-emerald-600 text-white py-4 rounded-2xl font-black shadow-lg">সেভ করুন</button>
+    <div id="toastContainer" class="toast-container"></div>
+
+    <div id="customerModal" class="modal-overlay hidden">
+        <div class="modal-sheet">
+            <div class="modal-handle"></div>
+            <h3 id="customerModalTitle" class="modal-title">নতুন কাস্টমার</h3>
+            <p class="modal-subtitle">প্রোফাইল তৈরি করুন</p>
+            <div class="modal-body">
+                <input type="text" id="name" placeholder="কাস্টমারের নাম" class="input-field">
+                <input type="text" id="phone" placeholder="মোবাইল নম্বর" class="input-field" inputmode="tel">
+                <select id="custTag" class="input-field">
+                    <option value="">ট্যাগ (ঐচ্ছিক)</option>
+                    <option value="VIP">⭐ VIP</option>
+                    <option value="Regular">নিয়মিত</option>
+                    <option value="New">নতুন</option>
+                </select>
+                <input type="text" id="custNotes" placeholder="নোট (ঐচ্ছিক)" class="input-field">
+                <div class="modal-actions">
+                    <button onclick="closeModal('customerModal')" class="btn-secondary">বন্ধ</button>
+                    <button onclick="saveCustomer()" class="btn-primary">সেভ করুন</button>
                 </div>
             </div>
         </div>
     </div>
 
-    <div id="detailModal" class="modal-overlay fixed inset-0 hidden z-[100] flex items-end justify-center overflow-hidden">
-        </div>
+    <div id="detailModal" class="modal-overlay hidden overflow-hidden"></div>
 
-    <div id="binModal" class="modal-overlay fixed inset-0 hidden z-[100] flex items-end justify-center">
-        <div class="ios-card w-full p-6 scale-in flex flex-col max-h-[85vh]">
-            <div class="w-12 h-1.5 bg-slate-300/50 rounded-full mx-auto mb-6"></div>
-            <div class="flex justify-between items-center mb-6 px-2">
-                <h3 class="text-xl font-black text-slate-800 tracking-tighter uppercase">রিসাইকেল বিন</h3>
-                <button onclick="closeModal('binModal')" class="text-slate-400 text-2xl">&times;</button>
+    <div id="reportModal" class="modal-overlay hidden">
+        <div class="modal-sheet modal-sheet-tall">
+            <div class="modal-handle"></div>
+            <div class="modal-header">
+                <h3 class="modal-title">রিপোর্ট ও অ্যানালিটিক্স</h3>
+                <button onclick="closeModal('reportModal')" class="modal-close">&times;</button>
             </div>
-            <div class="overflow-y-auto flex-1 bg-slate-50/50 rounded-3xl p-2">
-                <table class="w-full"><tbody id="binTable" class="divide-y divide-slate-100"></tbody></table>
+            <div id="reportContent" class="report-content"></div>
+            <button onclick="closeModal('reportModal')" class="btn-secondary btn-full">বন্ধ করুন</button>
+        </div>
+    </div>
+
+    <div id="settingsModal" class="modal-overlay hidden">
+        <div class="modal-sheet">
+            <div class="modal-handle"></div>
+            <h3 class="modal-title">সেটিংস</h3>
+            <div class="modal-body">
+                <div class="settings-row">
+                    <span class="settings-label">ডার্ক মোড</span>
+                    <button id="themeToggle" onclick="toggleTheme()" class="toggle-btn">
+                        <span class="toggle-thumb"></span>
+                    </button>
+                </div>
+                <div class="settings-block">
+                    <label class="settings-label">মুদ্রা প্রতীক</label>
+                    <input type="text" id="currencySymbol" placeholder="৳" class="input-field" maxlength="3">
+                </div>
+                <div class="settings-block">
+                    <label class="settings-label">ডাটা ইম্পোর্ট (JSON)</label>
+                    <input type="file" id="importFile" accept=".json" onchange="handleImport(event)" class="input-file">
+                </div>
+                <div class="modal-actions">
+                    <button onclick="closeModal('settingsModal')" class="btn-secondary">বন্ধ</button>
+                    <button onclick="saveSettings()" class="btn-primary">সেভ করুন</button>
+                </div>
             </div>
-            <button onclick="closeModal('binModal')" class="mt-4 w-full py-4 bg-slate-100 text-slate-600 rounded-2xl font-black">বন্ধ করুন</button>
+        </div>
+    </div>
+
+    <div id="binModal" class="modal-overlay hidden">
+        <div class="modal-sheet modal-sheet-tall">
+            <div class="modal-handle"></div>
+            <div class="modal-header">
+                <h3 class="modal-title">রিসাইকেল বিন</h3>
+                <button onclick="closeModal('binModal')" class="modal-close">&times;</button>
+            </div>
+            <div class="bin-content">
+                <table class="w-full"><tbody id="binTable"></tbody></table>
+            </div>
+            <button onclick="closeModal('binModal')" class="btn-secondary btn-full">বন্ধ করুন</button>
         </div>
     </div>
 
     <script src="script.js"></script>
     <script>
-        // আইফোন স্টাইল মডাল কন্ট্রোল
         function openModal(id) {
             const modal = document.getElementById(id);
+            if(!modal) return;
             modal.classList.remove('hidden');
-            modal.style.opacity = "0";
-            setTimeout(() => { modal.style.opacity = "1"; }, 10);
-            
+            modal.classList.add('modal-visible');
             if(id === 'binModal') renderBin();
-            if(typeof vibrate === "function") vibrate(); 
+            if(id === 'reportModal') renderReport();
+            if(id === 'settingsModal') loadSettingsUI();
+            if(typeof vibrate === "function") vibrate(15);
         }
-
         function closeModal(id) {
             const modal = document.getElementById(id);
-            modal.style.opacity = "0";
-            // ৪০০০ মিলিসেকেন্ড ট্রানজিশন শেষ হওয়ার পর হাইড করা
-            setTimeout(() => {
-                modal.classList.add('hidden');
-            }, 400);
+            if(!modal) return;
+            modal.classList.remove('modal-visible');
+            setTimeout(() => modal.classList.add('hidden'), 400);
         }
-
-        // ইনপুট স্ক্রল ফিক্স
+        function scrollTopSmooth() {
+            window.scrollTo({top: 0, behavior: 'smooth'});
+        }
         document.querySelectorAll('input').forEach(input => {
             input.addEventListener('focus', () => {
-                setTimeout(() => {
-                    input.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                }, 300);
+                setTimeout(() => input.scrollIntoView({ behavior: 'smooth', block: 'center' }), 300);
             });
         });
     </script>
