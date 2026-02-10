@@ -1027,6 +1027,35 @@ html.dark .bottom-nav {
     margin-top: 18px;
 }
 
+.btn-danger {
+    flex: 1;
+    padding: 18px;
+    border-radius: var(--radius-md);
+    background: linear-gradient(135deg, var(--danger), var(--danger-light));
+    color: white;
+    font-weight: 800;
+    border: none;
+    box-shadow: 0 4px 16px rgba(220, 38, 38, 0.35);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+}
+.btn-danger:hover:not(:disabled) {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px rgba(220, 38, 38, 0.45);
+}
+.btn-danger:active:not(:disabled) {
+    transform: translateY(0) scale(0.98);
+}
+.btn-danger:disabled {
+    cursor: not-allowed;
+    background: var(--slate-400);
+    box-shadow: none;
+}
+
 .btn-icon {
     cursor: pointer;
     transition: all 0.2s ease;
@@ -1336,78 +1365,90 @@ html.dark .bottom-nav {
    ═══════════════════════════════════════════════════════════ */
 
 @media (max-width: 768px) {
-    /* Make nav buttons show icons properly on mobile */
+    /* ── Nav button icons: ALWAYS visible, properly sized ── */
+    .nav-btn {
+        min-width: 42px;
+        min-height: 42px;
+    }
+    /* Font Awesome icons inside nav buttons - never hide */
+    .nav-btn i,
+    .nav-btn .fas,
+    .nav-btn .far,
+    .nav-btn .fab {
+        font-size: 16px !important;
+        display: inline-flex !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+    }
+
+    /* Mobile nav buttons: show icon + text label */
     .nav-btn-mobile {
         width: auto;
         border-radius: var(--radius-sm);
         padding: 8px 12px;
+        display: inline-flex;
+        align-items: center;
         gap: 6px;
     }
-    
-    /* Show text labels on mobile for better UX */
     .nav-btn-text {
-        display: inline;
+        display: inline !important;
         font-size: 11px;
         font-weight: 700;
     }
-    
-    /* Ensure icons are visible and properly sized */
-    .nav-btn i {
-        font-size: 16px;
-        display: inline-block;
-    }
-    
-    /* Action buttons with text on mobile */
+
+    /* Action buttons */
     .action-btn {
         padding: 8px 12px;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
     }
-    
+    .action-btn i,
+    .action-btn .fas {
+        font-size: 14px !important;
+        display: inline-flex !important;
+        visibility: visible !important;
+    }
     .action-btn-text {
-        display: inline;
+        display: inline !important;
         font-size: 12px;
     }
-    
-    /* Voice search button adjustments */
+
+    /* Voice search */
     .search-voice {
         width: auto;
         border-radius: var(--radius-sm);
         padding: 8px 12px;
+        display: inline-flex;
+        align-items: center;
         gap: 6px;
     }
-    
+    .search-voice i,
+    .search-voice .fas {
+        font-size: 15px !important;
+        display: inline-flex !important;
+        visibility: visible !important;
+    }
     .voice-text {
-        display: inline;
+        display: inline !important;
         font-size: 11px;
         font-weight: 700;
     }
-    
-    /* Adjust navigation for smaller screens */
-    .nav-inner {
-        padding: 0;
-    }
-    
-    .logo-text {
-        font-size: 1.1rem;
-    }
-    
-    .logo-sub {
-        font-size: 9px;
-    }
-    
-    /* List actions wrap nicely on mobile */
+
+    /* Nav inner */
+    .nav-inner { padding: 0; }
+    .logo-text { font-size: 1.1rem; }
+    .logo-sub  { font-size: 9px; }
+
+    /* List actions */
     .list-actions {
         width: 100%;
         justify-content: flex-end;
     }
-    
-    /* Bottom nav spacing for smaller screens */
-    .nav-item {
-        font-size: 10px;
-    }
-    
-    .nav-item i {
-        font-size: 18px;
-    }
+
+    /* Bottom nav */
+    .nav-item { font-size: 10px; }
+    .nav-item i { font-size: 18px !important; display: block !important; visibility: visible !important; }
 }
 
 @media (max-width: 640px) {
