@@ -15,7 +15,45 @@
     <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=DM+Sans:wght@400;500;600;700&family=Hind+Siliguri:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
     
+    <!-- Dexie.js for IndexedDB -->
     <script src="https://unpkg.com/dexie/dist/dexie.js"></script>
+    
+    <!-- Firebase Modular SDK v9 -->
+    <script type="module">
+        // Firebase configuration
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js';
+        import { getDatabase, ref, set, update, remove, onValue, onChildAdded, onChildChanged, onChildRemoved, push, get, child } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js';
+        
+        // Your Firebase configuration
+        const firebaseConfig = {
+            apiKey: "YOUR_API_KEY",
+            authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
+            databaseURL: "https://YOUR_PROJECT_ID-default-rtdb.firebaseio.com",
+            projectId: "YOUR_PROJECT_ID",
+            storageBucket: "YOUR_PROJECT_ID.appspot.com",
+            messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
+            appId: "YOUR_APP_ID"
+        };
+        
+        // Initialize Firebase
+        const app = initializeApp(firebaseConfig);
+        const database = getDatabase(app);
+        
+        // Make Firebase available globally
+        window.firebaseApp = app;
+        window.firebaseDb = database;
+        window.firebaseRef = ref;
+        window.firebaseSet = set;
+        window.firebaseUpdate = update;
+        window.firebaseRemove = remove;
+        window.firebaseOnValue = onValue;
+        window.firebaseOnChildAdded = onChildAdded;
+        window.firebaseOnChildChanged = onChildChanged;
+        window.firebaseOnChildRemoved = onChildRemoved;
+        window.firebasePush = push;
+        window.firebaseGet = get;
+        window.firebaseChild = child;
+    </script>
 </head>
 
 <body class="app-body">
@@ -44,11 +82,13 @@
                 <button onclick="toggleLanguage()" class="nav-btn" title="Language Switch">
                     <i class="fas fa-language"></i>
                 </button>
-                <button onclick="openModal('binModal')" class="nav-btn" data-bn="রিসাইকেল বিন" data-en="Recycle Bin">
+                <button onclick="openModal('binModal')" class="nav-btn nav-btn-mobile" title="Recycle Bin">
                     <i class="fas fa-trash-alt"></i>
+                    <span class="nav-btn-text" data-bn="বিন" data-en="Bin">বিন</span>
                 </button>
-                <button onclick="openModal('settingsModal')" class="nav-btn" data-bn="সেটিংস" data-en="Settings">
+                <button onclick="openModal('settingsModal')" class="nav-btn nav-btn-mobile" title="Settings">
                     <i class="fas fa-cog"></i>
+                    <span class="nav-btn-text" data-bn="সেটিংস" data-en="Settings">সেটিংস</span>
                 </button>
             </div>
         </div>
@@ -84,8 +124,9 @@
             <div class="search-wrapper">
                 <i class="fas fa-search search-icon"></i>
                 <input type="text" id="search" onkeyup="filterTable()" placeholder="কাস্টমার খুঁজুন..." class="search-input" data-bn-placeholder="কাস্টমার খুঁজুন..." data-en-placeholder="Search customers...">
-                <button onclick="startVoiceInput()" class="search-voice" data-bn="ভয়েসে খুঁজুন" data-en="Voice search">
+                <button onclick="startVoiceInput()" class="search-voice" title="Voice search">
                     <i class="fas fa-microphone"></i>
+                    <span class="voice-text" data-bn="ভয়েস" data-en="Voice">ভয়েস</span>
                 </button>
             </div>
             <select id="sortSelect" onchange="applySort()" class="sort-select">
@@ -105,12 +146,14 @@
                         <div id="statusBadge" class="status-badge status-online">
                             <span class="status-dot"></span> <span data-bn="Online" data-en="Online">Online</span>
                         </div>
-                        <button onclick="openModal('reportModal')" class="action-btn" data-bn="রিপোর্ট" data-en="Report">
+                        <button onclick="openModal('reportModal')" class="action-btn" title="Report">
                             <i class="fas fa-chart-pie"></i>
+                            <span class="action-btn-text" data-bn="রিপোর্ট" data-en="Report">রিপোর্ট</span>
                         </button>
                         <div class="dropdown-wrap">
-                            <button onclick="toggleExportMenu()" class="action-btn" data-bn="এক্সপোর্ট" data-en="Export">
+                            <button onclick="toggleExportMenu()" class="action-btn" title="Export">
                                 <i class="fas fa-download"></i>
+                                <span class="action-btn-text" data-bn="এক্সপোর্ট" data-en="Export">এক্সপোর্ট</span>
                             </button>
                             <div id="exportMenu" class="dropdown-menu hidden">
                                 <button onclick="exportCSV()" class="dropdown-item"><i class="fas fa-file-csv"></i> <span data-bn="CSV" data-en="CSV">CSV</span></button>
