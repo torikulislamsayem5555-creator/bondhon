@@ -1,11 +1,23 @@
-const SHEET_URL = "https://script.google.com/macros/s/AKfycbwCLJTE0243PM8WYJym0N35aAYbss4-yMBsB4eooHcE5p7cmr55vgZT6MONLtePMRsKbA/exec";
+// ═══════════════════════════════════════════════════════════
+// Bondhon Enterprise - Firebase Real-time Integration
+// Advanced Sales Tracking & Reporting System
+// ═══════════════════════════════════════════════════════════
+
+// ═══════════════════════════════════════════════════════════
+// IndexedDB (Dexie.js) - Local Cache & Offline Support
+// ═══════════════════════════════════════════════════════════
 
 const db = new Dexie("BondhonDB");
-db.version(1).stores({
+db.version(2).stores({
     customers: 'id, name, phone',
     recycleBin: 'id, name',
-    syncQueue: '++id, action'
+    transactions: '++autoId, customerId, transactionId, timestamp',
+    syncQueue: '++id, action, timestamp'
 });
+
+// ═══════════════════════════════════════════════════════════
+// Global Variables
+// ═══════════════════════════════════════════════════════════
 
 let currentId = null;
 let editMode = false;
@@ -14,8 +26,335 @@ let deleteType = null;
 let sortBy = 'newest';
 let allCustomers = [];
 let currentLanguage = 'bn';
+let isOnline = navigator.onLine;
+let isSyncing = false;
+let firebaseInitialized = false;
 
 const defaultSettings = { theme: 'light', currency: '৳', language: 'bn' };
+
+// ═══════════════════════════════════════════════════════════
+// Firebase Real-time Sync System
+// ═══════════════════════════════════════════════════════════
+
+/**
+ * Initialize Firebase real-time listeners for customers and transactions
+ * Syncs data automatically when changes occur on any device
+ */
+async function initFirebaseSync() {
+    if (!window.firebaseDb) {
+        console.error('Firebase not initialized');
+        return;
+    }
+    
+    console.log('🔥 Initializing Firebase real-time sync...');
+    firebaseInitialized = true;
+    
+    // Listen for customer changes
+    const customersRef = window.firebaseRef(window.firebaseDb, 'customers');
+    
+    // Listen for new customers added
+    window.firebaseOnChildAdded(customersRef, async (snapshot) => {
+        const customer = snapshot.val();
+        if (customer) {
+            customer.id = snapshot.key;
+            await db.customers.put(customer);
+            console.log('✓ Customer added from Firebase:', customer.name);
+            await render();
+        }
+    });
+    
+    // Listen for customer updates
+    window.firebaseOnChildChanged(customersRef, async (snapshot) => {
+        const customer = snapshot.val();
+        if (customer) {
+            customer.id = snapshot.key;
+            await db.customers.put(customer);
+            console.log('✓ Customer updated from Firebase:', customer.name);
+            await render();
+        }
+    });
+    
+    // Listen for customer deletions
+    window.firebaseOnChildRemoved(customersRef, async (snapshot) => {
+        await db.customers.delete(snapshot.key);
+        console.log('✓ Customer removed from Firebase:', snapshot.key);
+        await render();
+    });
+    
+    // Listen for recycle bin changes
+    const binRef = window.firebaseRef(window.firebaseDb, 'recycleBin');
+    
+    window.firebaseOnChildAdded(binRef, async (snapshot) => {
+        const item = snapshot.val();
+        if (item) {
+            item.id = snapshot.key;
+            await db.recycleBin.put(item);
+            console.log('✓ Bin item added from Firebase');
+        }
+    });
+    
+    window.firebaseOnChildRemoved(binRef, async (snapshot) => {
+        await db.recycleBin.delete(snapshot.key);
+        console.log('✓ Bin item removed from Firebase');
+    });
+    
+    // Listen for transaction changes
+    const transactionsRef = window.firebaseRef(window.firebaseDb, 'transactions');
+    
+    window.firebaseOnChildAdded(transactionsRef, async (snapshot) => {
+        const transaction = snapshot.val();
+        if (transaction) {
+            transaction.autoId = snapshot.key;
+            await db.transactions.put(transaction);
+            console.log('✓ Transaction added from Firebase');
+            await render();
+        }
+    });
+    
+    window.firebaseOnChildRemoved(transactionsRef, async (snapshot) => {
+        await db.transactions.where('transactionId').equals(snapshot.key).delete();
+        console.log('✓ Transaction removed from Firebase');
+        await render();
+    });
+    
+    console.log('🔥 Firebase real-time sync initialized successfully');
+}
+
+/**
+ * Save customer to Firebase
+ */
+async function saveCustomerToFirebase(customer) {
+    if (!window.firebaseDb || !isOnline) {
+        // Queue for later sync
+        await queueForSync('save_customer', customer);
+        return;
+    }
+    
+    try {
+        const customerRef = window.firebaseRef(window.firebaseDb, `customers/${customer.id}`);
+        await window.firebaseSet(customerRef, {
+            name: customer.name,
+            phone: customer.phone,
+            qty: customer.qty || 0,
+            bill: customer.bill || 0,
+            cash: customer.cash || 0,
+            due: customer.due || 0,
+            tag: customer.tag || '',
+            notes: customer.notes || '',
+            createdAt: customer.createdAt || Date.now(),
+            lastModified: Date.now()
+        });
+        console.log('✓ Customer saved to Firebase:', customer.name);
+    } catch (error) {
+        console.error('Firebase save error:', error);
+        await queueForSync('save_customer', customer);
+    }
+}
+
+/**
+ * Delete customer from Firebase
+ */
+async function deleteCustomerFromFirebase(customerId) {
+    if (!window.firebaseDb || !isOnline) {
+        await queueForSync('delete_customer', { id: customerId });
+        return;
+    }
+    
+    try {
+        const customerRef = window.firebaseRef(window.firebaseDb, `customers/${customerId}`);
+        await window.firebaseRemove(customerRef);
+        console.log('✓ Customer deleted from Firebase:', customerId);
+    } catch (error) {
+        console.error('Firebase delete error:', error);
+        await queueForSync('delete_customer', { id: customerId });
+    }
+}
+
+/**
+ * Save transaction to Firebase
+ */
+async function saveTransactionToFirebase(transaction) {
+    if (!window.firebaseDb || !isOnline) {
+        await queueForSync('save_transaction', transaction);
+        return;
+    }
+    
+    try {
+        const transactionRef = window.firebaseRef(window.firebaseDb, `transactions/${transaction.transactionId}`);
+        await window.firebaseSet(transactionRef, {
+            customerId: transaction.customerId,
+            transactionId: transaction.transactionId,
+            type: transaction.type,
+            qty: transaction.qty || 0,
+            bill: transaction.bill || 0,
+            cash: transaction.cash || 0,
+            details: transaction.details || '',
+            timestamp: transaction.timestamp
+        });
+        console.log('✓ Transaction saved to Firebase');
+    } catch (error) {
+        console.error('Firebase transaction save error:', error);
+        await queueForSync('save_transaction', transaction);
+    }
+}
+
+/**
+ * Delete transaction from Firebase
+ */
+async function deleteTransactionFromFirebase(transactionId) {
+    if (!window.firebaseDb || !isOnline) {
+        await queueForSync('delete_transaction', { transactionId });
+        return;
+    }
+    
+    try {
+        const transactionRef = window.firebaseRef(window.firebaseDb, `transactions/${transactionId}`);
+        await window.firebaseRemove(transactionRef);
+        console.log('✓ Transaction deleted from Firebase');
+    } catch (error) {
+        console.error('Firebase transaction delete error:', error);
+        await queueForSync('delete_transaction', { transactionId });
+    }
+}
+
+/**
+ * Move item to recycle bin in Firebase
+ */
+async function moveToBinFirebase(item) {
+    if (!window.firebaseDb || !isOnline) {
+        await queueForSync('move_to_bin', item);
+        return;
+    }
+    
+    try {
+        const binRef = window.firebaseRef(window.firebaseDb, `recycleBin/${item.id}`);
+        await window.firebaseSet(binRef, {
+            ...item,
+            deletedAt: Date.now()
+        });
+        console.log('✓ Item moved to bin in Firebase');
+    } catch (error) {
+        console.error('Firebase bin move error:', error);
+        await queueForSync('move_to_bin', item);
+    }
+}
+
+/**
+ * Restore item from recycle bin in Firebase
+ */
+async function restoreFromBinFirebase(itemId) {
+    if (!window.firebaseDb || !isOnline) {
+        await queueForSync('restore_from_bin', { id: itemId });
+        return;
+    }
+    
+    try {
+        const binRef = window.firebaseRef(window.firebaseDb, `recycleBin/${itemId}`);
+        await window.firebaseRemove(binRef);
+        console.log('✓ Item restored from bin in Firebase');
+    } catch (error) {
+        console.error('Firebase bin restore error:', error);
+        await queueForSync('restore_from_bin', { id: itemId });
+    }
+}
+
+// ═══════════════════════════════════════════════════════════
+// Offline Sync Queue Management
+// ═══════════════════════════════════════════════════════════
+
+/**
+ * Queue data for syncing when connection is restored
+ */
+async function queueForSync(action, data) {
+    await db.syncQueue.add({
+        action,
+        data,
+        timestamp: Date.now()
+    });
+    console.log(`⏳ Queued for sync: ${action}`);
+    updateSyncStatus();
+}
+
+/**
+ * Process sync queue when online
+ */
+async function processSyncQueue() {
+    if (!isOnline || isSyncing || !window.firebaseDb) return;
+    
+    const queue = await db.syncQueue.toArray();
+    if (queue.length === 0) return;
+    
+    isSyncing = true;
+    console.log(`🔄 Processing ${queue.length} queued items...`);
+    
+    for (const item of queue) {
+        try {
+            switch (item.action) {
+                case 'save_customer':
+                    await saveCustomerToFirebase(item.data);
+                    break;
+                case 'delete_customer':
+                    await deleteCustomerFromFirebase(item.data.id);
+                    break;
+                case 'save_transaction':
+                    await saveTransactionToFirebase(item.data);
+                    break;
+                case 'delete_transaction':
+                    await deleteTransactionFromFirebase(item.data.transactionId);
+                    break;
+                case 'move_to_bin':
+                    await moveToBinFirebase(item.data);
+                    break;
+                case 'restore_from_bin':
+                    await restoreFromBinFirebase(item.data.id);
+                    break;
+            }
+            
+            // Remove from queue after successful sync
+            await db.syncQueue.delete(item.id);
+        } catch (error) {
+            console.error('Sync queue processing error:', error);
+        }
+    }
+    
+    isSyncing = false;
+    updateSyncStatus();
+    
+    const remaining = await db.syncQueue.count();
+    if (remaining === 0) {
+        showToast(
+            currentLanguage === 'bn' ? '✓ সব ডাটা সিঙ্ক হয়ে গেছে' : '✓ All data synced',
+            'success'
+        );
+    }
+}
+
+/**
+ * Update sync status display
+ */
+async function updateSyncStatus() {
+    const queueSize = await db.syncQueue.count();
+    const badge = document.getElementById('notificationBadge');
+    
+    if (queueSize > 0) {
+        if (badge) {
+            badge.textContent = queueSize > 9 ? '9+' : queueSize;
+            badge.classList.remove('hidden');
+        }
+        
+        if (!isOnline) {
+            const statusBadge = document.getElementById('statusBadge');
+            if (statusBadge) {
+                statusBadge.className = 'status-badge status-offline';
+                statusBadge.innerHTML = `<span class="status-dot"></span> <span data-bn="Offline (${queueSize})" data-en="Offline (${queueSize})">Offline (${queueSize})</span>`;
+            }
+        }
+    } else {
+        if (badge) {
+            badge.classList.add('hidden');
+        }
+    }
+}
 
 // ═══════════════════════════════════════════════════════════
 // Settings Management
@@ -162,38 +501,37 @@ function triggerNotification(message) {
 document.addEventListener('DOMContentLoaded', async () => {
     const notifBtn = document.getElementById('notificationBtn');
     if (notifBtn) {
-        // Click handler: clear notifications and show sync status
         notifBtn.addEventListener('click', async () => {
             updateNotificationBadge(0);
             
             // Show sync status
-            const syncStatus = await getSyncStatus();
+            const queueSize = await db.syncQueue.count();
             
             let statusMessage = '';
-            if (syncStatus.queueSize === 0) {
+            if (queueSize === 0) {
                 statusMessage = currentLanguage === 'bn' 
                     ? '✓ সব ডাটা সিঙ্ক হয়ে গেছে' 
                     : '✓ All data synced';
-            } else if (!syncStatus.isOnline) {
+            } else if (!isOnline) {
                 statusMessage = currentLanguage === 'bn' 
-                    ? `⚠ অফলাইন: ${syncStatus.queueSize} টি ডাটা সিঙ্ক অপেক্ষায়` 
-                    : `⚠ Offline: ${syncStatus.queueSize} items waiting`;
+                    ? `⚠ অফলাইন: ${queueSize} টি ডাটা সিঙ্ক অপেক্ষায়` 
+                    : `⚠ Offline: ${queueSize} items waiting`;
             } else {
                 statusMessage = currentLanguage === 'bn' 
-                    ? `⏳ ${syncStatus.queueSize} টি ডাটা সিঙ্ক হচ্ছে...` 
-                    : `⏳ ${syncStatus.queueSize} items syncing...`;
+                    ? `⏳ ${queueSize} টি ডাটা সিঙ্ক হচ্ছে...` 
+                    : `⏳ ${queueSize} items syncing...`;
                 
                 // Trigger manual sync
-                manualSync();
+                processSyncQueue();
             }
             
-            showToast(statusMessage, syncStatus.queueSize === 0 ? 'success' : 'error');
+            showToast(statusMessage, queueSize === 0 ? 'success' : 'error');
         });
     }
 });
 
 // ═══════════════════════════════════════════════════════════
-// Modal Management with Smart Closure
+// Modal Management
 // ═══════════════════════════════════════════════════════════
 
 function openModal(id) {
@@ -238,1147 +576,841 @@ document.addEventListener('keydown', (e) => {
     }
 });
 
-function vibrate(time = 50) {
-    if (navigator.vibrate) navigator.vibrate(time);
-}
-
 // ═══════════════════════════════════════════════════════════
-// Online/Offline Status with Visual Feedback
+// Haptic Feedback (Vibration)
 // ═══════════════════════════════════════════════════════════
 
-function updateOnlineStatus() {
-    const badge = document.getElementById('statusBadge');
-    if (!badge) return;
-    
-    if (navigator.onLine) {
-        badge.innerHTML = `<span class="status-dot"></span> <span data-bn="Online" data-en="Online">${currentLanguage === 'bn' ? 'Online' : 'Online'}</span>`;
-        badge.className = 'status-badge status-online';
-        processQueue();
-    } else {
-        badge.innerHTML = `<span class="status-dot"></span> <span data-bn="Offline" data-en="Offline">${currentLanguage === 'bn' ? 'Offline' : 'Offline'}</span>`;
-        badge.className = 'status-badge status-offline';
+function vibrate(ms = 20) {
+    if ('vibrate' in navigator) {
+        navigator.vibrate(ms);
     }
 }
 
-window.addEventListener('online', () => {
-    updateOnlineStatus();
-    showToast(
-        currentLanguage === 'bn' ? 'ইন্টারনেট সংযুক্ত হয়েছে' : 'Back online',
-        'success'
-    );
-});
-
-window.addEventListener('offline', () => {
-    updateOnlineStatus();
-    showToast(
-        currentLanguage === 'bn' ? 'অফলাইন মোডে চলছে' : 'Working offline',
-        'error'
-    );
-});
-
 // ═══════════════════════════════════════════════════════════
-// Data Migration
+// Customer Management Functions
 // ═══════════════════════════════════════════════════════════
-
-async function migrateData() {
-    const oldData = JSON.parse(localStorage.getItem('supari_v4_data')) || [];
-    const oldBin = JSON.parse(localStorage.getItem('supari_v4_bin')) || [];
-    
-    if (oldData.length > 0) {
-        await db.customers.bulkPut(oldData);
-        localStorage.removeItem('supari_v4_data');
-    }
-    if (oldBin.length > 0) {
-        await db.recycleBin.bulkPut(oldBin);
-        localStorage.removeItem('supari_v4_bin');
-    }
-    
-    localStorage.removeItem('supari_data');
-    localStorage.removeItem('customers');
-}
-
-// ═══════════════════════════════════════════════════════════
-// Sorting
-// ═══════════════════════════════════════════════════════════
-
-function applySort() {
-    sortBy = document.getElementById('sortSelect')?.value || 'newest';
-    render();
-}
-
-// ═══════════════════════════════════════════════════════════
-// Tag Badge
-// ═══════════════════════════════════════════════════════════
-
-function getTagBadge(tag) {
-    if (!tag) return '';
-    const cls = tag === 'VIP' ? 'tag-vip' : tag === 'Regular' ? 'tag-regular' : 'tag-new';
-    return `<span class="tag ${cls}">${tag}</span>`;
-}
-
-// ═══════════════════════════════════════════════════════════
-// Render Customer List
-// ═══════════════════════════════════════════════════════════
-
-async function render() {
-    const tbody = document.getElementById('customerTable');
-    if (!tbody) return;
-
-    let customers = await db.customers.toArray();
-    allCustomers = [...customers];
-
-    // Apply sorting
-    if (sortBy === 'newest') customers.sort((a, b) => (b.id || 0) - (a.id || 0));
-    else if (sortBy === 'oldest') customers.sort((a, b) => (a.id || 0) - (b.id || 0));
-    else if (sortBy === 'name') customers.sort((a, b) => (a.name || '').localeCompare(b.name || '', 'bn'));
-    else if (sortBy === 'dueHigh') {
-        customers.sort((a, b) => {
-            const dA = (a.history || []).reduce((s, h) => s + (parseFloat(h.bill) || 0) - (parseFloat(h.cash) || 0), 0);
-            const dB = (b.history || []).reduce((s, h) => s + (parseFloat(h.bill) || 0) - (parseFloat(h.cash) || 0), 0);
-            return dB - dA;
-        });
-    } else if (sortBy === 'dueLow') {
-        customers.sort((a, b) => {
-            const dA = (a.history || []).reduce((s, h) => s + (parseFloat(h.bill) || 0) - (parseFloat(h.cash) || 0), 0);
-            const dB = (b.history || []).reduce((s, h) => s + (parseFloat(h.bill) || 0) - (parseFloat(h.cash) || 0), 0);
-            return dA - dB;
-        });
-    }
-
-    tbody.innerHTML = '';
-    let gDue = 0, gCash = 0, gQty = 0;
-    const cur = getCurrency();
-
-    if (customers.length === 0) {
-        const emptyText = currentLanguage === 'bn' 
-            ? { title: 'কোন কাস্টমার নেই', subtitle: 'নতুন কাস্টমার যোগ করতে + বাটনে ক্লিক করুন' }
-            : { title: 'No customers', subtitle: 'Click + button to add new customer' };
-        
-        tbody.innerHTML = `
-            <tr style="display:block;padding:48px 24px;text-align:center">
-                <td colspan="3" style="display:block">
-                    <div class="empty-icon"><i class="fas fa-users-slash"></i></div>
-                    <p class="empty-text">${emptyText.title}</p>
-                    <p class="empty-text" style="font-size:13px;margin-top:8px">${emptyText.subtitle}</p>
-                </td>
-            </tr>`;
-    }
-
-    customers.forEach((cust, i) => {
-        let bill = 0, cash = 0, qty = 0;
-        (cust.history || []).forEach(h => {
-            bill += (parseFloat(h.bill) || 0);
-            cash += (parseFloat(h.cash) || 0);
-            qty += (parseInt(h.qty) || 0);
-        });
-        const due = bill - cash;
-        gDue += due; gCash += cash; gQty += qty;
-
-        const phoneNum = cust.phone && cust.phone !== 'N/A' ? cust.phone.replace(/\D/g, '') : '';
-        const callBtn = phoneNum ? `<a href="tel:${phoneNum}" onclick="event.stopPropagation()" class="action-btn mr-1" title="${currentLanguage === 'bn' ? 'কল করুন' : 'Call'}"><i class="fas fa-phone-alt text-green-600"></i></a>` : '';
-
-        const tr = document.createElement('tr');
-        tr.className = 'customer-row';
-        tr.style.animationDelay = `${i * 0.03}s`;
-        tr.innerHTML = `
-            <td style="flex:1;min-width:0" onclick="viewDetails(${cust.id})">
-                <div class="font-bold text-slate-800" style="font-size:15px">${cust.name}${getTagBadge(cust.tag)}</div>
-                <div class="text-slate-400 text-xs flex items-center gap-1 mt-0.5">
-                    <i class="fas fa-phone-alt" style="font-size:9px"></i> ${cust.phone || 'N/A'}
-                </div>
-            </td>
-            <td style="padding:0 12px;text-align:center" onclick="viewDetails(${cust.id})">
-                <span class="font-black ${due > 0 ? 'text-rose-500' : 'text-emerald-500'}" style="font-size:15px">${cur}${due.toLocaleString('bn-BD')}</span>
-            </td>
-            <td style="display:flex;gap:4px;flex-shrink:0">
-                ${callBtn}
-                <button onclick="event.stopPropagation(); openEditCustomer(${cust.id})" class="action-btn" title="${currentLanguage === 'bn' ? 'এডিট' : 'Edit'}"><i class="fas fa-edit text-blue-500"></i></button>
-                <button onclick="event.stopPropagation(); softDeleteCustomer(${cust.id})" class="action-btn" title="${currentLanguage === 'bn' ? 'ডিলিট' : 'Delete'}"><i class="fas fa-trash-alt text-rose-500"></i></button>
-            </td>`;
-        tbody.appendChild(tr);
-    });
-
-    document.getElementById('totalCust').innerText = customers.length.toLocaleString('bn-BD');
-    document.getElementById('totalDue').innerText = cur + gDue.toLocaleString('bn-BD');
-    document.getElementById('totalCash').innerText = cur + gCash.toLocaleString('bn-BD');
-    document.getElementById('totalQty').innerText = gQty.toLocaleString('bn-BD');
-}
-
-// ═══════════════════════════════════════════════════════════
-// Save Customer
-// ═══════════════════════════════════════════════════════════
-
-async function saveCustomer() {
-    const nameInput = document.getElementById('name');
-    const phoneInput = document.getElementById('phone');
-    const notesInput = document.getElementById('custNotes');
-    const tagInput = document.getElementById('custTag');
-    
-    const name = nameInput.value.trim();
-    const phone = (phoneInput.value.trim() || 'N/A').replace(/\D/g, '').slice(0, 11) || 'N/A';
-    const notes = (notesInput && notesInput.value.trim()) || '';
-    const tag = (tagInput && tagInput.value) || '';
-
-    if (!name) {
-        vibrate(100);
-        showToast(
-            currentLanguage === 'bn' ? "কাস্টমারের নাম লিখুন!" : "Enter customer name!",
-            "error"
-        );
-        return;
-    }
-
-    if (editMode && currentId) {
-        const cust = await db.customers.get(currentId);
-        if (cust) {
-            cust.name = name;
-            cust.phone = phone;
-            cust.notes = notes;
-            cust.tag = tag;
-            cust.updatedAt = new Date().toISOString();
-            await db.customers.put(cust);
-            syncToSheet({ action: 'update_customer', id: currentId, name, phone, notes, tag });
-            showToast(currentLanguage === 'bn' ? "কাস্টমার আপডেট হয়েছে!" : "Customer updated!");
-        }
-    } else {
-        const newCust = {
-            id: Date.now(),
-            name,
-            phone,
-            notes,
-            tag,
-            history: [],
-            createdAt: new Date().toISOString()
-        };
-        await db.customers.add(newCust);
-        syncToSheet({ action: 'add_customer', id: newCust.id, name, phone, qty: 0, bill: 0, cash: 0, due: 0 });
-        showToast(currentLanguage === 'bn' ? "কাস্টমার যোগ হয়েছে!" : "Customer added!");
-        
-        triggerNotification(
-            currentLanguage === 'bn' ? `নতুন কাস্টমার: ${name}` : `New customer: ${name}`
-        );
-    }
-
-    closeModal('customerModal');
-    editMode = false;
-    currentId = null;
-    render();
-    vibrate(30);
-
-    nameInput.value = '';
-    phoneInput.value = '';
-    if (notesInput) notesInput.value = '';
-    if (tagInput) tagInput.value = '';
-}
-
-// ═══════════════════════════════════════════════════════════
-// Edit Customer
-// ═══════════════════════════════════════════════════════════
-
-async function openEditCustomer(id) {
-    const cust = await db.customers.get(id);
-    if (!cust) return;
-    
-    editMode = true;
-    currentId = id;
-    
-    const titleText = currentLanguage === 'bn' ? 'কাস্টমার এডিট' : 'Edit Customer';
-    document.getElementById('customerModalTitle').textContent = titleText;
-    document.getElementById('customerModalTitle').setAttribute('data-bn', 'কাস্টমার এডিট');
-    document.getElementById('customerModalTitle').setAttribute('data-en', 'Edit Customer');
-    
-    document.getElementById('name').value = cust.name || '';
-    document.getElementById('phone').value = cust.phone && cust.phone !== 'N/A' ? cust.phone : '';
-    document.getElementById('custNotes').value = cust.notes || '';
-    
-    const tagEl = document.getElementById('custTag');
-    if (tagEl) tagEl.value = cust.tag || '';
-    
-    openModal('customerModal');
-}
 
 function openAddCustomer() {
     editMode = false;
     currentId = null;
-    
-    const titleText = currentLanguage === 'bn' ? 'নতুন কাস্টমার' : 'New Customer';
-    document.getElementById('customerModalTitle').textContent = titleText;
-    document.getElementById('customerModalTitle').setAttribute('data-bn', 'নতুন কাস্টমার');
-    document.getElementById('customerModalTitle').setAttribute('data-en', 'New Customer');
-    
     document.getElementById('name').value = '';
     document.getElementById('phone').value = '';
+    document.getElementById('custTag').value = '';
+    document.getElementById('custNotes').value = '';
+    document.getElementById('customerModalTitle').textContent = currentLanguage === 'bn' ? 'নতুন কাস্টমার' : 'New Customer';
+    openModal('customerModal');
+    vibrate(20);
+}
+
+async function saveCustomer() {
+    const name = document.getElementById('name').value.trim();
+    const phone = document.getElementById('phone').value.trim();
+    const tag = document.getElementById('custTag').value;
+    const notes = document.getElementById('custNotes').value.trim();
     
-    const n = document.getElementById('custNotes');
-    if (n) n.value = '';
+    if (!name) {
+        showToast(currentLanguage === 'bn' ? 'নাম লিখুন!' : 'Enter name!', 'error');
+        return;
+    }
     
-    const t = document.getElementById('custTag');
-    if (t) t.value = '';
+    const customer = {
+        id: editMode ? currentId : Date.now().toString(),
+        name,
+        phone,
+        qty: 0,
+        bill: 0,
+        cash: 0,
+        due: 0,
+        tag,
+        notes,
+        createdAt: editMode ? (await db.customers.get(currentId))?.createdAt : Date.now(),
+        lastModified: Date.now()
+    };
     
+    if (editMode) {
+        const existing = await db.customers.get(currentId);
+        customer.qty = existing.qty;
+        customer.bill = existing.bill;
+        customer.cash = existing.cash;
+        customer.due = existing.due;
+    }
+    
+    await db.customers.put(customer);
+    await saveCustomerToFirebase(customer);
+    
+    showToast(
+        editMode 
+            ? (currentLanguage === 'bn' ? 'আপডেট সফল!' : 'Updated successfully!')
+            : (currentLanguage === 'bn' ? 'কাস্টমার যুক্ত হয়েছে!' : 'Customer added!'),
+        'success'
+    );
+    
+    closeModal('customerModal');
+    await render();
+    vibrate(30);
+}
+
+async function editCustomer(id) {
+    const c = await db.customers.get(id);
+    if (!c) return;
+    
+    editMode = true;
+    currentId = id;
+    document.getElementById('name').value = c.name;
+    document.getElementById('phone').value = c.phone || '';
+    document.getElementById('custTag').value = c.tag || '';
+    document.getElementById('custNotes').value = c.notes || '';
+    document.getElementById('customerModalTitle').textContent = currentLanguage === 'bn' ? 'কাস্টমার এডিট' : 'Edit Customer';
     openModal('customerModal');
 }
 
-// ═══════════════════════════════════════════════════════════
-// Professional Invoice Generation
-// ═══════════════════════════════════════════════════════════
+async function confirmDelete(id, type = 'customer') {
+    deleteTargetId = id;
+    deleteType = type;
+    
+    const message = currentLanguage === 'bn' 
+        ? `মুছে ফেলবেন?` 
+        : `Delete this ${type}?`;
+    
+    if (confirm(message)) {
+        if (type === 'customer') {
+            await deleteCustomer(id);
+        } else if (type === 'transaction') {
+            await deleteTransaction(id);
+        }
+    }
+}
 
-function generateProfessionalInvoice(cust, tr) {
-    const cur = getCurrency();
-    const d = new Date(tr.date);
-    const dateStr = d.toLocaleDateString(currentLanguage === 'bn' ? 'bn-BD' : 'en-US', { 
-        year: 'numeric', 
-        month: 'long', 
-        day: 'numeric' 
+async function deleteCustomer(id) {
+    const customer = await db.customers.get(id);
+    if (!customer) return;
+    
+    // Move to recycle bin
+    await db.recycleBin.put({
+        ...customer,
+        deletedAt: Date.now(),
+        type: 'customer'
     });
     
-    return `
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <title>Invoice - ${cust.name}</title>
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700;900&display=swap');
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
-            font-family: 'DM Sans', sans-serif;
-            padding: 40px;
-            background: #f8fafc;
-            color: #0f172a;
-        }
-        .invoice {
-            max-width: 800px;
-            margin: 0 auto;
-            background: white;
-            padding: 60px;
-            border-radius: 16px;
-            box-shadow: 0 20px 60px rgba(0,0,0,0.1);
-        }
-        .header {
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-start;
-            margin-bottom: 50px;
-            padding-bottom: 30px;
-            border-bottom: 3px solid #0d9488;
-        }
-        .company {
-            flex: 1;
-        }
-        .company h1 {
-            font-size: 32px;
-            font-weight: 900;
-            color: #0d9488;
-            margin-bottom: 8px;
-            letter-spacing: -0.02em;
-        }
-        .company p {
-            color: #64748b;
-            font-size: 14px;
-            font-weight: 500;
-        }
-        .invoice-meta {
-            text-align: right;
-        }
-        .invoice-meta h2 {
-            font-size: 42px;
-            font-weight: 900;
-            color: #0f172a;
-            margin-bottom: 12px;
-            letter-spacing: -0.03em;
-        }
-        .invoice-meta p {
-            color: #64748b;
-            font-size: 14px;
-            margin: 4px 0;
-        }
-        .info-section {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 40px;
-            margin-bottom: 40px;
-        }
-        .info-block h3 {
-            font-size: 12px;
-            font-weight: 800;
-            color: #94a3b8;
-            text-transform: uppercase;
-            letter-spacing: 0.8px;
-            margin-bottom: 12px;
-        }
-        .info-block p {
-            font-size: 16px;
-            font-weight: 600;
-            color: #1e293b;
-            margin: 6px 0;
-        }
-        .items-table {
-            width: 100%;
-            margin: 40px 0;
-            border-collapse: collapse;
-        }
-        .items-table thead {
-            background: linear-gradient(135deg, #0d9488, #0f766e);
-        }
-        .items-table th {
-            padding: 16px 20px;
-            text-align: left;
-            font-size: 12px;
-            font-weight: 800;
-            color: white;
-            text-transform: uppercase;
-            letter-spacing: 0.6px;
-        }
-        .items-table td {
-            padding: 20px;
-            border-bottom: 1px solid #e2e8f0;
-            font-size: 15px;
-            font-weight: 500;
-            color: #334155;
-        }
-        .items-table tbody tr:hover {
-            background: #f8fafc;
-        }
-        .totals {
-            margin-top: 40px;
-            text-align: right;
-        }
-        .total-row {
-            display: flex;
-            justify-content: flex-end;
-            align-items: center;
-            margin: 12px 0;
-            font-size: 16px;
-        }
-        .total-row label {
-            margin-right: 40px;
-            color: #64748b;
-            font-weight: 600;
-            min-width: 150px;
-            text-align: right;
-        }
-        .total-row .value {
-            font-weight: 700;
-            color: #1e293b;
-            min-width: 150px;
-            text-align: right;
-        }
-        .grand-total {
-            margin-top: 20px;
-            padding-top: 20px;
-            border-top: 3px solid #0d9488;
-        }
-        .grand-total label {
-            font-size: 18px;
-            font-weight: 800;
-            color: #0f172a;
-        }
-        .grand-total .value {
-            font-size: 28px;
-            font-weight: 900;
-            color: #0d9488;
-        }
-        .footer {
-            margin-top: 60px;
-            padding-top: 30px;
-            border-top: 2px solid #e2e8f0;
-            text-align: center;
-            color: #94a3b8;
-            font-size: 13px;
-        }
-        .thank-you {
-            font-size: 20px;
-            font-weight: 700;
-            color: #0d9488;
-            margin-bottom: 16px;
-        }
-        @media print {
-            body { background: white; padding: 0; }
-            .invoice { box-shadow: none; }
-        }
-    </style>
-</head>
-<body>
-    <div class="invoice">
-        <div class="header">
-            <div class="company">
-                <h1>${currentLanguage === 'bn' ? 'বন্ধন এন্টারপ্রাইজ' : 'Bondhon Enterprise'}</h1>
-                <p>${currentLanguage === 'bn' ? 'ক্রেডিট ম্যানেজমেন্ট সিস্টেম' : 'Credit Management System'}</p>
-            </div>
-            <div class="invoice-meta">
-                <h2>${currentLanguage === 'bn' ? 'রসিদ' : 'INVOICE'}</h2>
-                <p><strong>${currentLanguage === 'bn' ? 'নম্বর:' : 'No:'}</strong> #${tr.id}</p>
-                <p><strong>${currentLanguage === 'bn' ? 'তারিখ:' : 'Date:'}</strong> ${dateStr}</p>
-            </div>
-        </div>
-        
-        <div class="info-section">
-            <div class="info-block">
-                <h3>${currentLanguage === 'bn' ? 'কাস্টমার তথ্য' : 'Customer Information'}</h3>
-                <p><strong>${cust.name}</strong></p>
-                <p>${cust.phone}</p>
-                ${cust.notes ? `<p style="font-size:14px;color:#64748b;margin-top:8px;">${cust.notes}</p>` : ''}
-            </div>
-            <div class="info-block">
-                <h3>${currentLanguage === 'bn' ? 'লেনদেন বিবরণ' : 'Transaction Details'}</h3>
-                <p><strong>${currentLanguage === 'bn' ? 'লেনদেন ID:' : 'Transaction ID:'}</strong> ${tr.id}</p>
-                <p><strong>${currentLanguage === 'bn' ? 'তারিখ:' : 'Date:'}</strong> ${dateStr}</p>
-            </div>
-        </div>
-        
-        <table class="items-table">
-            <thead>
-                <tr>
-                    <th>${currentLanguage === 'bn' ? 'বিবরণ' : 'Description'}</th>
-                    <th style="text-align:center">${currentLanguage === 'bn' ? 'পরিমাণ' : 'Quantity'}</th>
-                    <th style="text-align:right">${currentLanguage === 'bn' ? 'মূল্য' : 'Amount'}</th>
-                </tr>
-            </thead>
-            <tbody>
-                <tr>
-                    <td>${currentLanguage === 'bn' ? 'সুপারি' : 'Products'}</td>
-                    <td style="text-align:center">${(tr.qty || 0).toLocaleString(currentLanguage === 'bn' ? 'bn-BD' : 'en-US')} ${currentLanguage === 'bn' ? 'পিস' : 'pcs'}</td>
-                    <td style="text-align:right">${cur}${(tr.bill || 0).toLocaleString(currentLanguage === 'bn' ? 'bn-BD' : 'en-US')}</td>
-                </tr>
-            </tbody>
-        </table>
-        
-        <div class="totals">
-            <div class="total-row">
-                <label>${currentLanguage === 'bn' ? 'মোট বিল:' : 'Total Bill:'}</label>
-                <div class="value">${cur}${(tr.bill || 0).toLocaleString(currentLanguage === 'bn' ? 'bn-BD' : 'en-US')}</div>
-            </div>
-            <div class="total-row">
-                <label>${currentLanguage === 'bn' ? 'নগদ জমা:' : 'Cash Paid:'}</label>
-                <div class="value" style="color:#059669">${cur}${(tr.cash || 0).toLocaleString(currentLanguage === 'bn' ? 'bn-BD' : 'en-US')}</div>
-            </div>
-            <div class="total-row grand-total">
-                <label>${currentLanguage === 'bn' ? 'বাকি পরিমাণ:' : 'Due Amount:'}</label>
-                <div class="value">${cur}${(tr.due || 0).toLocaleString(currentLanguage === 'bn' ? 'bn-BD' : 'en-US')}</div>
-            </div>
-        </div>
-        
-        <div class="footer">
-            <p class="thank-you">${currentLanguage === 'bn' ? 'ধন্যবাদ!' : 'Thank You!'}</p>
-            <p>${currentLanguage === 'bn' ? 'আপনার ব্যবসার জন্য আমরা কৃতজ্ঞ' : 'We appreciate your business'}</p>
-        </div>
-    </div>
-</body>
-</html>
-    `.trim();
+    // Move transactions to bin
+    const transactions = await db.transactions.where('customerId').equals(id).toArray();
+    for (const trans of transactions) {
+        await db.recycleBin.put({
+            ...trans,
+            deletedAt: Date.now(),
+            type: 'transaction'
+        });
+        await db.transactions.delete(trans.autoId);
+    }
+    
+    await db.customers.delete(id);
+    await deleteCustomerFromFirebase(id);
+    await moveToBinFirebase(customer);
+    
+    showToast(
+        currentLanguage === 'bn' ? 'রিসাইকেল বিনে স্থানান্তরিত' : 'Moved to recycle bin',
+        'success'
+    );
+    
+    await render();
+    vibrate(40);
 }
 
 // ═══════════════════════════════════════════════════════════
-// View Customer Details
+// Advanced Transaction Management System
+// Multiple Sales per Customer with Unique IDs
+// ═══════════════════════════════════════════════════════════
+
+/**
+ * Add a new transaction (sell) for a customer
+ * Each transaction has a unique ID and timestamp
+ */
+async function addTransaction(customerId, type = 'sell') {
+    const c = await db.customers.get(customerId);
+    if (!c) return;
+    
+    const qtyInput = prompt(currentLanguage === 'bn' ? 'সুপারি পরিমাণ:' : 'Quantity:', '0');
+    if (!qtyInput) return;
+    const qty = parseFloat(qtyInput) || 0;
+    
+    const billInput = prompt(currentLanguage === 'bn' ? 'বিল:' : 'Bill:', '0');
+    if (!billInput) return;
+    const bill = parseFloat(billInput) || 0;
+    
+    const cashInput = prompt(currentLanguage === 'bn' ? 'জমা:' : 'Paid:', '0');
+    if (!cashInput) return;
+    const cash = parseFloat(cashInput) || 0;
+    
+    const details = prompt(currentLanguage === 'bn' ? 'বিস্তারিত (ঐচ্ছিক):' : 'Details (optional):', '') || '';
+    
+    // Create unique transaction
+    const transaction = {
+        transactionId: `${customerId}_${Date.now()}`,
+        customerId: customerId,
+        type: type,
+        qty: qty,
+        bill: bill,
+        cash: cash,
+        due: bill - cash,
+        details: details,
+        timestamp: Date.now()
+    };
+    
+    // Save transaction to IndexedDB
+    await db.transactions.add(transaction);
+    
+    // Save to Firebase
+    await saveTransactionToFirebase(transaction);
+    
+    // Update customer totals
+    c.qty = (c.qty || 0) + qty;
+    c.bill = (c.bill || 0) + bill;
+    c.cash = (c.cash || 0) + cash;
+    c.due = c.bill - c.cash;
+    c.lastModified = Date.now();
+    
+    await db.customers.put(c);
+    await saveCustomerToFirebase(c);
+    
+    showToast(
+        currentLanguage === 'bn' ? 'লেনদেন যুক্ত হয়েছে!' : 'Transaction added!',
+        'success'
+    );
+    
+    await render();
+    vibrate(30);
+}
+
+/**
+ * Delete a specific transaction
+ */
+async function deleteTransaction(transactionId) {
+    const transactions = await db.transactions.where('transactionId').equals(transactionId).toArray();
+    if (transactions.length === 0) return;
+    
+    const transaction = transactions[0];
+    const customerId = transaction.customerId;
+    
+    // Remove transaction
+    await db.transactions.delete(transaction.autoId);
+    await deleteTransactionFromFirebase(transactionId);
+    
+    // Update customer totals
+    const customer = await db.customers.get(customerId);
+    if (customer) {
+        customer.qty = (customer.qty || 0) - (transaction.qty || 0);
+        customer.bill = (customer.bill || 0) - (transaction.bill || 0);
+        customer.cash = (customer.cash || 0) - (transaction.cash || 0);
+        customer.due = customer.bill - customer.cash;
+        customer.lastModified = Date.now();
+        
+        await db.customers.put(customer);
+        await saveCustomerToFirebase(customer);
+    }
+    
+    showToast(
+        currentLanguage === 'bn' ? 'লেনদেন মুছে ফেলা হয়েছে' : 'Transaction deleted',
+        'success'
+    );
+    
+    await render();
+    
+    // Refresh detail modal if open
+    const detailModal = document.getElementById('detailModal');
+    if (detailModal && !detailModal.classList.contains('hidden')) {
+        await viewDetails(customerId);
+    }
+}
+
+/**
+ * Print receipt for individual transaction
+ */
+function printTransactionReceipt(transactionId) {
+    db.transactions.where('transactionId').equals(transactionId).toArray().then(async transactions => {
+        if (transactions.length === 0) return;
+        
+        const transaction = transactions[0];
+        const customer = await db.customers.get(transaction.customerId);
+        if (!customer) return;
+        
+        const cur = getCurrency();
+        const date = new Date(transaction.timestamp);
+        const dateStr = date.toLocaleDateString('bn-BD');
+        const timeStr = date.toLocaleTimeString('bn-BD', { hour: '2-digit', minute: '2-digit' });
+        
+        const receiptHTML = `
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>Receipt - ${customer.name}</title>
+                <style>
+                    @media print {
+                        body {
+                            font-family: 'Courier New', monospace;
+                            margin: 20px;
+                            background: white;
+                        }
+                        .receipt {
+                            max-width: 400px;
+                            margin: 0 auto;
+                            padding: 20px;
+                            border: 2px solid #000;
+                        }
+                        .header {
+                            text-align: center;
+                            border-bottom: 2px solid #000;
+                            padding-bottom: 10px;
+                            margin-bottom: 15px;
+                        }
+                        .header h1 {
+                            margin: 0;
+                            font-size: 22px;
+                        }
+                        .header p {
+                            margin: 5px 0;
+                            font-size: 12px;
+                        }
+                        .row {
+                            display: flex;
+                            justify-content: space-between;
+                            margin: 8px 0;
+                            font-size: 14px;
+                        }
+                        .separator {
+                            border-top: 1px dashed #000;
+                            margin: 10px 0;
+                        }
+                        .total {
+                            font-weight: bold;
+                            font-size: 16px;
+                            margin-top: 15px;
+                        }
+                        .footer {
+                            text-align: center;
+                            margin-top: 20px;
+                            font-size: 12px;
+                            border-top: 2px solid #000;
+                            padding-top: 10px;
+                        }
+                    }
+                </style>
+            </head>
+            <body>
+                <div class="receipt">
+                    <div class="header">
+                        <h1>🌿 Bondhon Enterprise</h1>
+                        <p>ক্রেডিট ম্যানেজমেন্ট সিস্টেম</p>
+                    </div>
+                    
+                    <div class="row">
+                        <span>তারিখ:</span>
+                        <span>${dateStr}</span>
+                    </div>
+                    <div class="row">
+                        <span>সময়:</span>
+                        <span>${timeStr}</span>
+                    </div>
+                    
+                    <div class="separator"></div>
+                    
+                    <div class="row">
+                        <span>কাস্টমার:</span>
+                        <span><strong>${customer.name}</strong></span>
+                    </div>
+                    ${customer.phone ? `<div class="row"><span>মোবাইল:</span><span>${customer.phone}</span></div>` : ''}
+                    
+                    <div class="separator"></div>
+                    
+                    <div class="row">
+                        <span>সুপারি পরিমাণ:</span>
+                        <span>${transaction.qty || 0} পিস</span>
+                    </div>
+                    <div class="row">
+                        <span>বিল:</span>
+                        <span>${cur}${(transaction.bill || 0).toLocaleString('bn-BD')}</span>
+                    </div>
+                    <div class="row">
+                        <span>জমা:</span>
+                        <span>${cur}${(transaction.cash || 0).toLocaleString('bn-BD')}</span>
+                    </div>
+                    
+                    <div class="separator"></div>
+                    
+                    <div class="row total">
+                        <span>বাকি:</span>
+                        <span>${cur}${(transaction.due || 0).toLocaleString('bn-BD')}</span>
+                    </div>
+                    
+                    ${transaction.details ? `
+                    <div class="separator"></div>
+                    <div class="row">
+                        <span>বিস্তারিত:</span>
+                        <span>${transaction.details}</span>
+                    </div>
+                    ` : ''}
+                    
+                    <div class="footer">
+                        <p>ধন্যবাদ!</p>
+                        <p>রসিদ নং: ${transactionId.substring(0, 12)}</p>
+                    </div>
+                </div>
+                
+                <script>
+                    window.onload = function() {
+                        window.print();
+                        setTimeout(() => window.close(), 500);
+                    }
+                </script>
+            </body>
+            </html>
+        `;
+        
+        const printWindow = window.open('', '_blank');
+        printWindow.document.write(receiptHTML);
+        printWindow.document.close();
+    });
+}
+
+/**
+ * Generate comprehensive customer report with all transactions
+ */
+async function generateFullCustomerReport(customerId) {
+    const customer = await db.customers.get(customerId);
+    if (!customer) return;
+    
+    const transactions = await db.transactions
+        .where('customerId')
+        .equals(customerId)
+        .toArray();
+    
+    transactions.sort((a, b) => b.timestamp - a.timestamp);
+    
+    const cur = getCurrency();
+    
+    let transactionRows = '';
+    let runningBalance = 0;
+    
+    // Process transactions in chronological order for running balance
+    const chronological = [...transactions].reverse();
+    for (const trans of chronological) {
+        const date = new Date(trans.timestamp);
+        const dateStr = date.toLocaleDateString('bn-BD');
+        const timeStr = date.toLocaleTimeString('bn-BD', { hour: '2-digit', minute: '2-digit' });
+        
+        runningBalance += (trans.bill || 0) - (trans.cash || 0);
+        
+        transactionRows = `
+            <tr>
+                <td style="padding: 8px; border: 1px solid #ddd;">${dateStr}<br><small>${timeStr}</small></td>
+                <td style="padding: 8px; border: 1px solid #ddd;">${trans.details || '-'}</td>
+                <td style="padding: 8px; border: 1px solid #ddd; text-align: center;">${trans.qty || 0}</td>
+                <td style="padding: 8px; border: 1px solid #ddd; text-align: right;">${cur}${(trans.bill || 0).toLocaleString('bn-BD')}</td>
+                <td style="padding: 8px; border: 1px solid #ddd; text-align: right;">${cur}${(trans.cash || 0).toLocaleString('bn-BD')}</td>
+                <td style="padding: 8px; border: 1px solid #ddd; text-align: right; font-weight: bold;">${cur}${runningBalance.toLocaleString('bn-BD')}</td>
+            </tr>
+        ` + transactionRows;
+    }
+    
+    const reportHTML = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Full Report - ${customer.name}</title>
+            <style>
+                @media print {
+                    body {
+                        font-family: 'Arial', sans-serif;
+                        margin: 20px;
+                        background: white;
+                        color: #000;
+                    }
+                    .report-container {
+                        max-width: 900px;
+                        margin: 0 auto;
+                    }
+                    .report-header {
+                        text-align: center;
+                        border-bottom: 3px solid #0d9488;
+                        padding-bottom: 20px;
+                        margin-bottom: 30px;
+                    }
+                    .report-header h1 {
+                        margin: 0;
+                        color: #0d9488;
+                        font-size: 28px;
+                    }
+                    .report-header p {
+                        margin: 5px 0;
+                        color: #666;
+                    }
+                    .customer-info {
+                        background: #f0fdfa;
+                        padding: 15px;
+                        border-radius: 8px;
+                        margin-bottom: 20px;
+                        border: 2px solid #0d9488;
+                    }
+                    .customer-info h2 {
+                        margin: 0 0 10px 0;
+                        color: #0d9488;
+                    }
+                    .summary-grid {
+                        display: grid;
+                        grid-template-columns: repeat(4, 1fr);
+                        gap: 15px;
+                        margin-bottom: 30px;
+                    }
+                    .summary-card {
+                        background: white;
+                        border: 2px solid #e2e8f0;
+                        border-radius: 8px;
+                        padding: 15px;
+                        text-align: center;
+                    }
+                    .summary-card h3 {
+                        margin: 0;
+                        font-size: 12px;
+                        color: #64748b;
+                        text-transform: uppercase;
+                        letter-spacing: 0.5px;
+                    }
+                    .summary-card p {
+                        margin: 10px 0 0 0;
+                        font-size: 24px;
+                        font-weight: bold;
+                        color: #0d9488;
+                    }
+                    table {
+                        width: 100%;
+                        border-collapse: collapse;
+                        margin-top: 20px;
+                    }
+                    th {
+                        background: #0d9488;
+                        color: white;
+                        padding: 12px 8px;
+                        text-align: left;
+                        font-weight: bold;
+                    }
+                    td {
+                        padding: 8px;
+                        border: 1px solid #ddd;
+                    }
+                    tr:nth-child(even) {
+                        background: #f8fafc;
+                    }
+                    .report-footer {
+                        margin-top: 30px;
+                        text-align: center;
+                        border-top: 2px solid #e2e8f0;
+                        padding-top: 20px;
+                        color: #64748b;
+                    }
+                }
+            </style>
+        </head>
+        <body>
+            <div class="report-container">
+                <div class="report-header">
+                    <h1>🌿 Bondhon Enterprise</h1>
+                    <p>সম্পূর্ণ কাস্টমার রিপোর্ট</p>
+                    <p><small>তৈরি: ${new Date().toLocaleDateString('bn-BD')}</small></p>
+                </div>
+                
+                <div class="customer-info">
+                    <h2>${customer.name}</h2>
+                    ${customer.phone ? `<p><strong>মোবাইল:</strong> ${customer.phone}</p>` : ''}
+                    ${customer.tag ? `<p><strong>ট্যাগ:</strong> ${customer.tag}</p>` : ''}
+                    ${customer.notes ? `<p><strong>নোট:</strong> ${customer.notes}</p>` : ''}
+                </div>
+                
+                <div class="summary-grid">
+                    <div class="summary-card">
+                        <h3>মোট সুপারি</h3>
+                        <p>${(customer.qty || 0).toLocaleString('bn-BD')}</p>
+                    </div>
+                    <div class="summary-card">
+                        <h3>মোট বিল</h3>
+                        <p>${cur}${(customer.bill || 0).toLocaleString('bn-BD')}</p>
+                    </div>
+                    <div class="summary-card">
+                        <h3>মোট জমা</h3>
+                        <p>${cur}${(customer.cash || 0).toLocaleString('bn-BD')}</p>
+                    </div>
+                    <div class="summary-card">
+                        <h3>বর্তমান বাকি</h3>
+                        <p style="color: #dc2626;">${cur}${(customer.due || 0).toLocaleString('bn-BD')}</p>
+                    </div>
+                </div>
+                
+                <h3 style="margin-bottom: 10px; color: #0d9488;">লেনদেনের বিস্তারিত ইতিহাস</h3>
+                <table>
+                    <thead>
+                        <tr>
+                            <th style="width: 15%;">তারিখ/সময়</th>
+                            <th style="width: 25%;">বিস্তারিত</th>
+                            <th style="width: 10%; text-align: center;">পরিমাণ</th>
+                            <th style="width: 15%; text-align: right;">বিল</th>
+                            <th style="width: 15%; text-align: right;">জমা</th>
+                            <th style="width: 20%; text-align: right;">ব্যালেন্স</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${transactionRows || '<tr><td colspan="6" style="text-align: center; padding: 20px; color: #94a3b8;">কোন লেনদেন নেই</td></tr>'}
+                    </tbody>
+                </table>
+                
+                <div class="report-footer">
+                    <p>মোট লেনদেন: ${transactions.length} টি</p>
+                    <p><small>Bondhon Enterprise - ক্রেডিট ম্যানেজমেন্ট সিস্টেম</small></p>
+                </div>
+            </div>
+            
+            <script>
+                window.onload = function() {
+                    window.print();
+                }
+            </script>
+        </body>
+        </html>
+    `;
+    
+    const printWindow = window.open('', '_blank');
+    printWindow.document.write(reportHTML);
+    printWindow.document.close();
+}
+
+// ═══════════════════════════════════════════════════════════
+// Customer Details View with Transaction History
 // ═══════════════════════════════════════════════════════════
 
 async function viewDetails(id) {
-    currentId = id;
-    const cust = await db.customers.get(id);
-    if (!cust) return;
-
-    let tBill = 0, tCash = 0, tQty = 0;
-    (cust.history || []).forEach(h => {
-        tBill += (parseFloat(h.bill) || 0);
-        tCash += (parseFloat(h.cash) || 0);
-        tQty += (parseInt(h.qty) || 0);
-    });
-    const due = tBill - tCash;
+    const c = await db.customers.get(id);
+    if (!c) return;
+    
+    // Get all transactions for this customer
+    const transactions = await db.transactions
+        .where('customerId')
+        .equals(id)
+        .toArray();
+    
+    // Sort by timestamp (newest first)
+    transactions.sort((a, b) => b.timestamp - a.timestamp);
+    
     const cur = getCurrency();
-
-    const labels = currentLanguage === 'bn' 
-        ? {
-            totalDue: 'মোট বাকি',
-            newTransaction: 'নতুন লেনদেন',
-            quantity: 'সুপারি (পিস)',
-            totalBill: 'মোট বিল',
-            cashPaid: 'নগদ জমা',
-            printReceipt: 'রিসিপ্ট প্রিন্ট',
-            save: 'সেভ করুন',
-            history: 'লেনদেন ইতিহাস',
-            noHistory: 'কোন ইতিহাস নেই',
-            pieces: 'পিস',
-            paid: 'জমা',
-            close: 'বন্ধ করুন'
-        }
-        : {
-            totalDue: 'Total Due',
-            newTransaction: 'New Transaction',
-            quantity: 'Quantity (pcs)',
-            totalBill: 'Total Bill',
-            cashPaid: 'Cash Paid',
-            printReceipt: 'Print Receipt',
-            save: 'Save',
-            history: 'Transaction History',
-            noHistory: 'No history',
-            pieces: 'pcs',
-            paid: 'Paid',
-            close: 'Close'
-        };
-
     const modal = document.getElementById('detailModal');
-    modal.innerHTML = `
-        <div class="modal-backdrop" onclick="closeModal('detailModal')"></div>
-        <div class="modal-sheet" style="max-height:94vh">
-            <div class="modal-handle"></div>
-            <div class="flex justify-between items-start mb-6">
-                <div>
-                    <h2 class="text-2xl font-black text-slate-800">${cust.name}${getTagBadge(cust.tag)}</h2>
-                    <a href="tel:${(cust.phone || '').replace(/\D/g, '')}" onclick="event.stopPropagation()" class="text-slate-500 text-sm font-bold flex items-center gap-2 mt-1">
-                        <i class="fas fa-phone-alt"></i> ${cust.phone}
-                    </a>
-                    ${cust.notes ? `<p class="text-slate-400 text-xs mt-2">${cust.notes}</p>` : ''}
-                </div>
-                <div class="flex gap-2">
-                    <button onclick="event.stopPropagation(); openEditCustomer(${cust.id}); closeModal('detailModal');" class="action-btn"><i class="fas fa-edit text-blue-500"></i></button>
-                    <div class="text-right">
-                        <p class="text-[10px] font-black text-rose-400 uppercase">${labels.totalDue}</p>
-                        <p class="text-xl font-black text-rose-500">${cur}${due.toLocaleString('bn-BD')}</p>
+    
+    // Build transaction history HTML
+    let transactionsHTML = '';
+    if (transactions.length > 0) {
+        transactionsHTML = transactions.map(trans => {
+            const date = new Date(trans.timestamp);
+            const dateStr = date.toLocaleDateString('bn-BD');
+            const timeStr = date.toLocaleTimeString('bn-BD', { hour: '2-digit', minute: '2-digit' });
+            
+            return `
+                <div class="transaction-item" style="background: var(--bg-card); border-radius: 12px; padding: 16px; margin-bottom: 12px; border: 1px solid var(--border);">
+                    <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 10px;">
+                        <div>
+                            <p style="font-size: 12px; color: var(--text-secondary); margin-bottom: 4px;">${dateStr} • ${timeStr}</p>
+                            ${trans.details ? `<p style="font-size: 14px; color: var(--text-primary); font-weight: 600;">${trans.details}</p>` : ''}
+                        </div>
+                        <div style="display: flex; gap: 8px;">
+                            <button onclick="printTransactionReceipt('${trans.transactionId}')" class="btn-icon" title="${currentLanguage === 'bn' ? 'প্রিন্ট' : 'Print'}" style="width: 36px; height: 36px; border-radius: 8px; background: var(--primary-ultra-light); color: var(--primary); border: none; display: flex; align-items: center; justify-content: center; cursor: pointer;">
+                                <i class="fas fa-print"></i>
+                            </button>
+                            <button onclick="confirmDelete('${trans.transactionId}', 'transaction')" class="btn-icon" title="${currentLanguage === 'bn' ? 'মুছুন' : 'Delete'}" style="width: 36px; height: 36px; border-radius: 8px; background: rgba(220, 38, 38, 0.1); color: #dc2626; border: none; display: flex; align-items: center; justify-content: center; cursor: pointer;">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </div>
                     </div>
-                </div>
-            </div>
-            <div class="overflow-y-auto flex-1 space-y-4 pr-2">
-                <div class="bg-slate-100/50 p-6 rounded-2xl space-y-3">
-                    <p class="text-[10px] font-black text-slate-400 uppercase ml-1">${labels.newTransaction}</p>
-                    <input type="number" id="trQty" inputmode="numeric" placeholder="${labels.quantity}" class="input-field">
-                    <div class="grid grid-cols-2 gap-3">
-                        <input type="number" id="trBill" inputmode="numeric" placeholder="${labels.totalBill}" class="input-field">
-                        <input type="number" id="trCash" inputmode="numeric" placeholder="${labels.cashPaid}" class="input-field bg-emerald-50 border-emerald-200">
+                    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px;">
+                        <div>
+                            <p style="font-size: 10px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px;">${currentLanguage === 'bn' ? 'পরিমাণ' : 'Qty'}</p>
+                            <p style="font-size: 16px; font-weight: 700; color: var(--text-primary);">${trans.qty || 0}</p>
+                        </div>
+                        <div>
+                            <p style="font-size: 10px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px;">${currentLanguage === 'bn' ? 'বিল' : 'Bill'}</p>
+                            <p style="font-size: 16px; font-weight: 700; color: var(--primary);">${cur}${(trans.bill || 0).toLocaleString('bn-BD')}</p>
+                        </div>
+                        <div>
+                            <p style="font-size: 10px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px;">${currentLanguage === 'bn' ? 'জমা' : 'Paid'}</p>
+                            <p style="font-size: 16px; font-weight: 700; color: var(--success);">${cur}${(trans.cash || 0).toLocaleString('bn-BD')}</p>
+                        </div>
                     </div>
-                    <label class="flex items-center gap-2 cursor-pointer">
-                        <input type="checkbox" id="genReceipt" class="rounded">
-                        <span class="text-sm font-bold text-slate-600">${labels.printReceipt}</span>
-                    </label>
-                    <button onclick="addTransaction()" class="btn-primary w-full">${labels.save}</button>
-                </div>
-                <div class="space-y-3">
-                    <h4 class="text-xs font-black text-slate-400 uppercase ml-2">${labels.history}</h4>
-                    ${(cust.history || []).length === 0 ? `<p class="text-center text-slate-300 py-10 italic">${labels.noHistory}</p>` :
-        (cust.history || []).slice().reverse().map(h => `
-                        <div class="bg-white p-4 rounded-2xl flex justify-between items-center border border-slate-100">
-                            <div>
-                                <p class="text-sm font-bold text-slate-700">${new Date(h.date).toLocaleDateString(currentLanguage === 'bn' ? 'bn-BD' : 'en-US')}</p>
-                                <p class="text-[10px] text-slate-400">${h.qty || 0} ${labels.pieces}</p>
-                            </div>
-                            <div class="flex items-center gap-3">
-                                <div class="text-right">
-                                    <p class="font-black text-sm ${h.due > 0 ? 'text-rose-500' : 'text-emerald-500'}">${cur}${h.due.toLocaleString('bn-BD')}</p>
-                                    <p class="text-[8px] text-slate-400">${labels.paid}: ${cur}${h.cash.toLocaleString('bn-BD')}</p>
-                                </div>
-                                <button onclick="printReceipt(${cust.id},${h.id})" class="action-btn" title="Receipt"><i class="fas fa-receipt text-slate-500"></i></button>
-                                <button onclick="deleteTr(${h.id})" class="action-btn"><i class="fas fa-trash-alt text-rose-400"></i></button>
+                    ${trans.due !== 0 ? `
+                        <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border);">
+                            <div style="display: flex; justify-content: space-between; align-items: center;">
+                                <span style="font-size: 12px; color: var(--text-secondary);">${currentLanguage === 'bn' ? 'বাকি' : 'Due'}</span>
+                                <span style="font-size: 16px; font-weight: 800; color: var(--danger);">${cur}${(trans.due || 0).toLocaleString('bn-BD')}</span>
                             </div>
                         </div>
-                    `).join('')}
+                    ` : ''}
+                </div>
+            `;
+        }).join('');
+    } else {
+        transactionsHTML = `
+            <div style="text-align: center; padding: 40px 20px; color: var(--text-secondary);">
+                <i class="fas fa-receipt" style="font-size: 48px; opacity: 0.3; margin-bottom: 16px;"></i>
+                <p>${currentLanguage === 'bn' ? 'কোন লেনদেন নেই' : 'No transactions yet'}</p>
+            </div>
+        `;
+    }
+    
+    modal.innerHTML = `
+        <div class="modal-backdrop" onclick="closeModal('detailModal')"></div>
+        <div class="modal-sheet modal-sheet-tall" style="max-width: 600px;">
+            <div class="modal-handle"></div>
+            <div class="modal-header" style="border-bottom: 2px solid var(--border); padding-bottom: 16px; margin-bottom: 20px;">
+                <div>
+                    <h3 class="modal-title">${c.name}</h3>
+                    ${c.phone ? `<p style="font-size: 13px; color: var(--text-secondary); margin-top: 4px;"><i class="fas fa-phone"></i> ${c.phone}</p>` : ''}
+                    ${c.tag ? `<span class="tag tag-${c.tag.toLowerCase()}" style="margin-top: 8px; display: inline-block;">${c.tag}</span>` : ''}
+                </div>
+                <button onclick="closeModal('detailModal')" class="modal-close">&times;</button>
+            </div>
+            
+            <!-- Summary Cards -->
+            <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-bottom: 24px;">
+                <div style="background: linear-gradient(135deg, var(--primary), var(--primary-dark)); border-radius: 16px; padding: 16px; color: white;">
+                    <p style="font-size: 11px; opacity: 0.9; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px;">${currentLanguage === 'bn' ? 'মোট বিল' : 'Total Bill'}</p>
+                    <p style="font-size: 22px; font-weight: 900;">${cur}${(c.bill || 0).toLocaleString('bn-BD')}</p>
+                </div>
+                <div style="background: linear-gradient(135deg, var(--success), var(--success-light)); border-radius: 16px; padding: 16px; color: white;">
+                    <p style="font-size: 11px; opacity: 0.9; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px;">${currentLanguage === 'bn' ? 'মোট জমা' : 'Total Paid'}</p>
+                    <p style="font-size: 22px; font-weight: 900;">${cur}${(c.cash || 0).toLocaleString('bn-BD')}</p>
+                </div>
+                <div style="background: linear-gradient(135deg, var(--danger), var(--danger-light)); border-radius: 16px; padding: 16px; color: white;">
+                    <p style="font-size: 11px; opacity: 0.9; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px;">${currentLanguage === 'bn' ? 'বাকি' : 'Due'}</p>
+                    <p style="font-size: 22px; font-weight: 900;">${cur}${(c.due || 0).toLocaleString('bn-BD')}</p>
+                </div>
+                <div style="background: linear-gradient(135deg, var(--accent), var(--accent-light)); border-radius: 16px; padding: 16px; color: white;">
+                    <p style="font-size: 11px; opacity: 0.9; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px;">${currentLanguage === 'bn' ? 'সুপারি' : 'Quantity'}</p>
+                    <p style="font-size: 22px; font-weight: 900;">${(c.qty || 0).toLocaleString('bn-BD')}</p>
                 </div>
             </div>
-            <div class="pt-4">
-                <button onclick="closeModal('detailModal')" class="btn-secondary w-full">${labels.close}</button>
+            
+            <!-- Action Buttons -->
+            <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 20px;">
+                <button onclick="addTransaction('${id}')" class="btn-primary" style="padding: 14px; font-size: 14px;">
+                    <i class="fas fa-plus-circle"></i> ${currentLanguage === 'bn' ? 'নতুন বিক্রয়' : 'New Sale'}
+                </button>
+                <button onclick="generateFullCustomerReport('${id}')" class="btn-secondary" style="padding: 14px; font-size: 14px; background: var(--primary-ultra-light); color: var(--primary); border-color: var(--primary-light);">
+                    <i class="fas fa-file-alt"></i> ${currentLanguage === 'bn' ? 'সম্পূর্ণ রিপোর্ট' : 'Full Report'}
+                </button>
             </div>
-        </div>
-    `;
-    modal.classList.remove('hidden');
-    setTimeout(() => modal.classList.add('modal-visible'), 10);
-    setupInputScroll();
-}
-
-// ═══════════════════════════════════════════════════════════
-// Print Professional Receipt
-// ═══════════════════════════════════════════════════════════
-
-async function printReceipt(custId, trId) {
-    const cust = await db.customers.get(custId);
-    if (!cust) return;
-    
-    const tr = (cust.history || []).find(h => h.id === trId);
-    if (!tr) return;
-    
-    const invoice = generateProfessionalInvoice(cust, tr);
-    const w = window.open('', '_blank');
-    w.document.write(invoice);
-    w.document.close();
-    
-    setTimeout(() => {
-        w.print();
-    }, 500);
-    
-    showToast(
-        currentLanguage === 'bn' ? "রিসিপ্ট প্রিন্ট করছেন..." : "Printing receipt...",
-        'success'
-    );
-}
-
-// ═══════════════════════════════════════════════════════════
-// Add Transaction
-// ═══════════════════════════════════════════════════════════
-
-async function addTransaction() {
-    const qtyInput = document.getElementById('trQty');
-    const billInput = document.getElementById('trBill');
-    const cashInput = document.getElementById('trCash');
-    const genReceipt = document.getElementById('genReceipt');
-
-    const qty = parseInt(qtyInput.value) || 0;
-    const bill = parseFloat(billInput.value) || 0;
-    const cash = parseFloat(cashInput.value) || 0;
-
-    if (bill === 0 && cash === 0) {
-        vibrate(100);
-        showToast(
-            currentLanguage === 'bn' ? "বিল অথবা নগদ জমার পরিমাণ লিখুন!" : "Enter bill or cash amount!",
-            "error"
-        );
-        return;
-    }
-
-    const cust = await db.customers.get(currentId);
-    if (!cust) return;
-
-    const newTr = {
-        id: Date.now(),
-        date: new Date().toISOString(),
-        qty,
-        bill,
-        cash,
-        due: bill - cash
-    };
-
-    cust.history = cust.history || [];
-    cust.history.push(newTr);
-    await db.customers.put(cust);
-
-    if (genReceipt && genReceipt.checked) {
-        const invoice = generateProfessionalInvoice(cust, newTr);
-        const w = window.open('', '_blank');
-        w.document.write(invoice);
-        w.document.close();
-        setTimeout(() => w.print(), 500);
-    }
-
-    viewDetails(currentId);
-    render();
-    vibrate(30);
-    showToast(
-        currentLanguage === 'bn' ? "লেনদেন যোগ হয়েছে!" : "Transaction added!",
-        'success'
-    );
-
-    syncToSheet({ action: 'add_transaction', customerId: currentId, ...newTr });
-
-    qtyInput.value = '';
-    billInput.value = '';
-    cashInput.value = '';
-}
-
-// ═══════════════════════════════════════════════════════════
-// Robust Sync System with Auto-Sync, Offline-First & Polling
-// ═══════════════════════════════════════════════════════════
-
-let syncInterval = null;
-let isSyncing = false;
-const SYNC_POLL_INTERVAL = 5 * 60 * 1000; // 5 minutes
-
-// Initialize sync interval on page load
-function initSyncSystem() {
-    // Start background polling
-    startSyncPolling();
-    
-    // Sync immediately if online
-    if (navigator.onLine) {
-        processQueue();
-    }
-    
-    // Listen for online event to trigger sync
-    window.addEventListener('online', () => {
-        console.log('Connection restored - triggering sync');
-        processQueue();
-    });
-}
-
-// Start background sync polling (every 5 minutes)
-function startSyncPolling() {
-    if (syncInterval) {
-        clearInterval(syncInterval);
-    }
-    
-    syncInterval = setInterval(async () => {
-        if (navigator.onLine) {
-            const queueSize = await db.syncQueue.count();
-            if (queueSize > 0) {
-                console.log(`Background sync: ${queueSize} items in queue`);
-                processQueue();
-            }
-        }
-    }, SYNC_POLL_INTERVAL);
-}
-
-// Stop sync polling (useful for cleanup)
-function stopSyncPolling() {
-    if (syncInterval) {
-        clearInterval(syncInterval);
-        syncInterval = null;
-    }
-}
-
-// Show syncing indicator on notification bell
-function showSyncingIndicator() {
-    const notifBtn = document.getElementById('notificationBtn');
-    if (!notifBtn) return;
-    
-    // Add spinning animation class
-    notifBtn.classList.add('syncing');
-    notifBtn.innerHTML = '<i class="fas fa-sync-alt fa-spin"></i><span id="notificationBadge" class="notification-badge hidden">0</span>';
-}
-
-// Hide syncing indicator
-function hideSyncingIndicator() {
-    const notifBtn = document.getElementById('notificationBtn');
-    if (!notifBtn) return;
-    
-    // Remove spinning animation
-    notifBtn.classList.remove('syncing');
-    notifBtn.innerHTML = '<i class="fas fa-bell"></i><span id="notificationBadge" class="notification-badge hidden">0</span>';
-    
-    // Restore notification badge if any
-    const currentCount = parseInt(localStorage.getItem('notificationCount') || '0');
-    updateNotificationBadge(currentCount);
-}
-
-// Add to sync queue (auto-triggered after every operation)
-async function syncToSheet(data) {
-    try {
-        // Add timestamp to track when data was queued
-        data.queuedAt = new Date().toISOString();
-        
-        await db.syncQueue.add(data);
-        console.log('Added to sync queue:', data.action);
-        
-        // Immediately attempt to sync if online
-        if (navigator.onLine) {
-            processQueue();
-        } else {
-            const queueSize = await db.syncQueue.count();
-            console.log(`Offline: ${queueSize} items waiting in queue`);
-            showToast(
-                currentLanguage === 'bn' 
-                    ? `অফলাইন: ${queueSize} টি ডাটা সিঙ্ক অপেক্ষায়` 
-                    : `Offline: ${queueSize} items waiting to sync`,
-                'error'
-            );
-        }
-    } catch (error) {
-        console.error('Error adding to sync queue:', error);
-    }
-}
-
-// Process sync queue with robust error handling
-async function processQueue() {
-    // Prevent concurrent sync operations
-    if (isSyncing) {
-        console.log('Sync already in progress, skipping...');
-        return;
-    }
-    
-    // Check if online
-    if (!navigator.onLine) {
-        console.log('Offline - skipping sync');
-        return;
-    }
-    
-    const queue = await db.syncQueue.toArray();
-    if (queue.length === 0) {
-        console.log('Sync queue is empty');
-        return;
-    }
-    
-    console.log(`Starting sync: ${queue.length} items in queue`);
-    isSyncing = true;
-    showSyncingIndicator();
-    
-    let syncedCount = 0;
-    let failedCount = 0;
-    const failedItems = [];
-    
-    for (const item of queue) {
-        try {
-            // Attempt to send to Google Sheets
-            const response = await fetch(SHEET_URL, {
-                method: 'POST',
-                mode: 'no-cors',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(item)
-            });
             
-            // no-cors mode doesn't give us response status, so we assume success
-            // Remove from queue on successful send
-            await db.syncQueue.delete(item.id);
-            syncedCount++;
-            console.log(`Synced: ${item.action} (ID: ${item.id})`);
-            
-        } catch (error) {
-            console.error(`Sync failed for item ${item.id}:`, error);
-            failedCount++;
-            failedItems.push(item);
-            
-            // If we hit a network error, stop processing to avoid wasting attempts
-            if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
-                console.log('Network error detected - stopping sync');
-                break;
-            }
-        }
-    }
-    
-    isSyncing = false;
-    hideSyncingIndicator();
-    
-    // Provide feedback to user
-    if (syncedCount > 0) {
-        console.log(`✓ Sync complete: ${syncedCount} items synced`);
-        
-        triggerNotification(
-            currentLanguage === 'bn' 
-                ? `${syncedCount} টি ডাটা সিঙ্ক সফল হয়েছে` 
-                : `${syncedCount} items synced successfully`
-        );
-    }
-    
-    if (failedCount > 0) {
-        console.warn(`✗ Sync partial: ${failedCount} items failed`);
-        showToast(
-            currentLanguage === 'bn' 
-                ? `${failedCount} টি ডাটা সিঙ্ক ব্যর্থ হয়েছে` 
-                : `${failedCount} items failed to sync`,
-            'error'
-        );
-    }
-    
-    // Check remaining queue
-    const remainingQueue = await db.syncQueue.count();
-    if (remainingQueue > 0) {
-        console.log(`${remainingQueue} items still in queue`);
-    }
-}
-
-// Manual sync trigger (can be called from UI)
-async function manualSync() {
-    if (!navigator.onLine) {
-        showToast(
-            currentLanguage === 'bn' 
-                ? 'ইন্টারনেট সংযোগ নেই' 
-                : 'No internet connection',
-            'error'
-        );
-        return;
-    }
-    
-    const queueSize = await db.syncQueue.count();
-    
-    if (queueSize === 0) {
-        showToast(
-            currentLanguage === 'bn' 
-                ? 'সব ডাটা ইতিমধ্যে সিঙ্ক হয়ে গেছে' 
-                : 'All data already synced',
-            'success'
-        );
-        return;
-    }
-    
-    showToast(
-        currentLanguage === 'bn' 
-            ? `${queueSize} টি ডাটা সিঙ্ক করা হচ্ছে...` 
-            : `Syncing ${queueSize} items...`,
-        'success'
-    );
-    
-    await processQueue();
-}
-
-// Get sync status for display
-async function getSyncStatus() {
-    const queueSize = await db.syncQueue.count();
-    const isOnline = navigator.onLine;
-    
-    return {
-        queueSize,
-        isOnline,
-        isSyncing,
-        status: queueSize === 0 ? 'synced' : (isOnline ? 'pending' : 'offline')
-    };
-}
-
-// ═══════════════════════════════════════════════════════════
-// Delete Transaction
-// ═══════════════════════════════════════════════════════════
-
-async function deleteTr(trId) {
-    const confirmMsg = currentLanguage === 'bn' 
-        ? "এই লেনদেনটি কি মুছে ফেলতে চান?" 
-        : "Delete this transaction?";
-    
-    if (!confirm(confirmMsg)) return;
-    
-    const cust = await db.customers.get(currentId);
-    if (cust) {
-        cust.history = (cust.history || []).filter(h => h.id !== trId);
-        await db.customers.put(cust);
-        syncToSheet({ action: 'delete_transaction', customerId: currentId, trId });
-        viewDetails(currentId);
-        render();
-        vibrate(50);
-        showToast(
-            currentLanguage === 'bn' ? "লেনদেন মুছে ফেলা হয়েছে" : "Transaction deleted",
-            'success'
-        );
-    }
-}
-
-// ═══════════════════════════════════════════════════════════
-// Delete Customer
-// ═══════════════════════════════════════════════════════════
-
-function softDeleteCustomer(id) {
-    deleteTargetId = id;
-    deleteType = 'customer';
-    
-    const msg = currentLanguage === 'bn' 
-        ? "কাস্টমার মুছতে নিচে 'DELETE' লিখুন। এটি করলে কাস্টমারটি রিসাইকেল বিন-এ যাবে।"
-        : "Type 'DELETE' below to move customer to recycle bin.";
-    
-    showAdvancedDeleteModal(msg);
-}
-
-function showAdvancedDeleteModal(msg) {
-    vibrate(50);
-    const oldModal = document.getElementById('advancedDeleteModal');
-    if (oldModal) oldModal.remove();
-
-    const labels = currentLanguage === 'bn'
-        ? { sure: 'আপনি কি নিশ্চিত?', placeholder: 'এখানে DELETE লিখুন', no: 'না', delete: 'মুছুন' }
-        : { sure: 'Are you sure?', placeholder: 'Type DELETE here', no: 'No', delete: 'Delete' };
-
-    const modalHTML = `
-        <div id="advancedDeleteModal" class="modal-overlay modal-visible" style="align-items:center">
-            <div class="modal-backdrop" onclick="closeAdvancedDeleteModal()"></div>
-            <div class="modal-sheet" style="max-width:360px">
-                <div class="w-16 h-16 bg-rose-50 text-rose-500 rounded-full flex items-center justify-center mx-auto mb-4">
-                    <i class="fas fa-trash-alt text-2xl"></i>
+            <!-- Transaction History -->
+            <div style="margin-bottom: 20px;">
+                <h4 style="font-size: 14px; font-weight: 800; color: var(--text-primary); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 14px;">
+                    <i class="fas fa-history"></i> ${currentLanguage === 'bn' ? 'লেনদেনের ইতিহাস' : 'Transaction History'} (${transactions.length})
+                </h4>
+                <div style="max-height: 400px; overflow-y: auto;">
+                    ${transactionsHTML}
                 </div>
-                <h3 class="text-xl font-black mb-2 text-slate-800 text-center">${labels.sure}</h3>
-                <p class="text-slate-500 text-sm mb-6 text-center">${msg}</p>
-                <input type="text" id="deleteConfirmInput" placeholder="${labels.placeholder}" class="input-field mb-6 text-center">
-                <div class="flex gap-3">
-                    <button onclick="closeAdvancedDeleteModal()" class="btn-secondary">${labels.no}</button>
-                    <button id="finalDeleteBtn" onclick="verifyAndDelete()" class="btn-primary opacity-50 cursor-not-allowed">${labels.delete}</button>
-                </div>
+            </div>
+            
+            <!-- Bottom Actions -->
+            <div style="display: flex; gap: 10px; padding-top: 16px; border-top: 2px solid var(--border);">
+                <button onclick="editCustomer('${id}')" class="btn-secondary" style="flex: 1;">
+                    <i class="fas fa-edit"></i> ${currentLanguage === 'bn' ? 'এডিট' : 'Edit'}
+                </button>
+                <button onclick="confirmDelete('${id}')" class="btn-secondary" style="flex: 1; background: rgba(220, 38, 38, 0.1); color: var(--danger); border-color: rgba(220, 38, 38, 0.3);">
+                    <i class="fas fa-trash"></i> ${currentLanguage === 'bn' ? 'মুছুন' : 'Delete'}
+                </button>
             </div>
         </div>
     `;
-    document.body.insertAdjacentHTML('beforeend', modalHTML);
-
-    const input = document.getElementById('deleteConfirmInput');
-    const btn = document.getElementById('finalDeleteBtn');
-    input.addEventListener('input', (e) => {
-        if (e.target.value.trim() === "DELETE") {
-            btn.classList.remove('opacity-50', 'cursor-not-allowed');
-        } else {
-            btn.classList.add('opacity-50', 'cursor-not-allowed');
-        }
-    });
-}
-
-function verifyAndDelete() {
-    const input = document.getElementById('deleteConfirmInput');
-    if (input.value.trim() === "DELETE") {
-        handleFinalDelete();
-        closeAdvancedDeleteModal();
-    }
-}
-
-function closeAdvancedDeleteModal() {
-    const modal = document.getElementById('advancedDeleteModal');
-    if (modal) modal.remove();
-}
-
-async function handleFinalDelete() {
-    if (deleteType === 'customer') {
-        const cust = await db.customers.get(deleteTargetId);
-        if (cust) {
-            await db.recycleBin.put(cust);
-            await db.customers.delete(deleteTargetId);
-            syncToSheet({ action: 'delete_customer', id: deleteTargetId });
-            showToast(
-                currentLanguage === 'bn' ? "কাস্টমার বিনে সরানো হয়েছে" : "Customer moved to bin",
-                'success'
-            );
-        }
-    } else if (deleteType === 'permanent') {
-        await db.recycleBin.delete(deleteTargetId);
-        showToast(
-            currentLanguage === 'bn' ? "চিরতরে মুছে ফেলা হয়েছে" : "Permanently deleted",
-            'success'
-        );
-    }
-    render();
-    const bin = document.getElementById('binModal');
-    if (bin && !bin.classList.contains('hidden')) renderBin();
-    vibrate(50);
+    
+    openModal('detailModal');
 }
 
 // ═══════════════════════════════════════════════════════════
-// Recycle Bin
+// Render & Display Functions
 // ═══════════════════════════════════════════════════════════
 
-async function renderBin() {
-    const binBody = document.getElementById('binTable');
-    if (!binBody) return;
+async function render() {
+    const customers = await db.customers.toArray();
+    allCustomers = customers;
     
-    const binData = await db.recycleBin.toArray();
-    const emptyText = currentLanguage === 'bn' ? 'বিন খালি' : 'Bin is empty';
+    applySort();
     
-    binBody.innerHTML = binData.length === 0 
-        ? `<tr><td class="p-10 text-center text-slate-300 font-bold">${emptyText}</td></tr>` 
-        : '';
+    const cur = getCurrency();
+    const tbody = document.getElementById('customerTable');
     
-    binData.forEach(cust => {
-        binBody.innerHTML += `
-            <tr class="border-b border-slate-100" style="display:flex;align-items:center;padding:16px;gap:12px">
-                <td style="flex:1">
-                    <p class="font-bold text-slate-700">${cust.name}</p>
-                    <p class="text-xs text-slate-400">${cust.phone}</p>
+    if (customers.length === 0) {
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="5" style="text-align: center; padding: 60px 20px;">
+                    <div class="empty-icon"><i class="fas fa-users"></i></div>
+                    <p class="empty-text" data-bn="কোন কাস্টমার নেই" data-en="No customers">কোন কাস্টমার নেই</p>
                 </td>
-                <td style="display:flex;gap:8px">
-                    <button onclick="restoreCustomer(${cust.id})" class="action-btn text-emerald-600"><i class="fas fa-undo"></i></button>
-                    <button onclick="permanentDelete(${cust.id})" class="action-btn text-rose-500"><i class="fas fa-times"></i></button>
+            </tr>
+        `;
+    } else {
+        tbody.innerHTML = customers.map(c => `
+            <tr class="customer-row" onclick="viewDetails('${c.id}')">
+                <td style="padding: 18px 20px;">
+                    <div style="display: flex; align-items: center; gap: 14px;">
+                        <div class="customer-avatar">
+                            ${c.name.charAt(0).toUpperCase()}
+                        </div>
+                        <div>
+                            <h4 class="customer-name">
+                                ${c.name}
+                                ${c.tag ? `<span class="tag tag-${c.tag.toLowerCase()}">${c.tag}</span>` : ''}
+                            </h4>
+                            ${c.phone ? `<p class="customer-phone">${c.phone}</p>` : ''}
+                        </div>
+                    </div>
                 </td>
-            </tr>`;
-    });
-}
-
-async function restoreCustomer(id) {
-    const cust = await db.recycleBin.get(id);
-    if (cust) {
-        await db.customers.put(cust);
-        await db.recycleBin.delete(id);
-        render();
-        renderBin();
-        vibrate(30);
-        showToast(
-            currentLanguage === 'bn' ? "কাস্টমার পুনরুদ্ধার হয়েছে!" : "Customer restored!",
-            'success'
-        );
-        syncToSheet({ action: 'restore_customer', id });
+                <td style="text-align: right; padding: 18px 20px;">
+                    <div class="customer-qty">${(c.qty || 0).toLocaleString('bn-BD')}</div>
+                </td>
+                <td style="text-align: right; padding: 18px 20px;">
+                    <div class="customer-due ${c.due > 0 ? 'customer-due-active' : ''}">${cur}${(c.due || 0).toLocaleString('bn-BD')}</div>
+                </td>
+            </tr>
+        `).join('');
     }
+    
+    // Update stats
+    const totalCust = customers.length;
+    const totalQty = customers.reduce((sum, c) => sum + (c.qty || 0), 0);
+    const totalBill = customers.reduce((sum, c) => sum + (c.bill || 0), 0);
+    const totalCash = customers.reduce((sum, c) => sum + (c.cash || 0), 0);
+    const totalDue = customers.reduce((sum, c) => sum + (c.due || 0), 0);
+    
+    document.getElementById('totalCust').textContent = totalCust.toLocaleString('bn-BD');
+    document.getElementById('totalQty').textContent = totalQty.toLocaleString('bn-BD');
+    document.getElementById('totalDue').textContent = `${cur}${totalDue.toLocaleString('bn-BD')}`;
+    document.getElementById('totalCash').textContent = `${cur}${totalCash.toLocaleString('bn-BD')}`;
+    
+    applyLanguage();
 }
 
-function permanentDelete(id) {
-    deleteTargetId = id;
-    deleteType = 'permanent';
+// ═══════════════════════════════════════════════════════════
+// Sorting Functions
+// ═══════════════════════════════════════════════════════════
+
+function applySort() {
+    const sortSelect = document.getElementById('sortSelect');
+    if (sortSelect) {
+        sortBy = sortSelect.value;
+    }
     
-    const msg = currentLanguage === 'bn'
-        ? "এটি চিরতরে ডিলিট করতে নিচে 'DELETE' লিখুন।"
-        : "Type 'DELETE' below to permanently delete.";
-    
-    showAdvancedDeleteModal(msg);
+    if (sortBy === 'newest') {
+        allCustomers.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    } else if (sortBy === 'oldest') {
+        allCustomers.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+    } else if (sortBy === 'name') {
+        allCustomers.sort((a, b) => a.name.localeCompare(b.name));
+    } else if (sortBy === 'dueHigh') {
+        allCustomers.sort((a, b) => (b.due || 0) - (a.due || 0));
+    } else if (sortBy === 'dueLow') {
+        allCustomers.sort((a, b) => (a.due || 0) - (b.due || 0));
+    }
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -1386,159 +1418,291 @@ function permanentDelete(id) {
 // ═══════════════════════════════════════════════════════════
 
 function toggleExportMenu() {
-    const m = document.getElementById('exportMenu');
-    if (m) m.classList.toggle('hidden');
+    const menu = document.getElementById('exportMenu');
+    if (menu) {
+        menu.classList.toggle('hidden');
+    }
 }
 
+// Close export menu when clicking outside
 document.addEventListener('click', (e) => {
-    const m = document.getElementById('exportMenu');
-    if (m && !m.contains(e.target) && !e.target.closest('.dropdown-wrap button')) {
-        m.classList.add('hidden');
+    const menu = document.getElementById('exportMenu');
+    const btn = e.target.closest('.dropdown-wrap');
+    if (menu && !menu.classList.contains('hidden') && !btn) {
+        menu.classList.add('hidden');
     }
 });
 
 async function exportCSV() {
-    const customers = allCustomers.length ? allCustomers : await db.customers.toArray();
-    const cur = getCurrency();
+    const customers = await db.customers.toArray();
+    if (customers.length === 0) {
+        showToast(currentLanguage === 'bn' ? 'কোন ডাটা নেই!' : 'No data!', 'error');
+        return;
+    }
     
-    const headers = currentLanguage === 'bn'
-        ? "নাম,ফোন,মোট বিল,মোট জমা,বাকি,সুপারি (পিস)\n"
-        : "Name,Phone,Total Bill,Total Paid,Due,Quantity\n";
+    const headers = ['Name', 'Phone', 'Quantity', 'Bill', 'Cash', 'Due', 'Tag', 'Notes'];
+    const rows = customers.map(c => [
+        c.name,
+        c.phone || '',
+        c.qty || 0,
+        c.bill || 0,
+        c.cash || 0,
+        c.due || 0,
+        c.tag || '',
+        c.notes || ''
+    ]);
     
-    let csv = headers;
-    
-    customers.forEach(c => {
-        let bill = 0, cash = 0, qty = 0;
-        (c.history || []).forEach(h => {
-            bill += (parseFloat(h.bill) || 0);
-            cash += (parseFloat(h.cash) || 0);
-            qty += (parseInt(h.qty) || 0);
-        });
-        csv += `"${(c.name || '').replace(/"/g, '""')}","${(c.phone || '').replace(/"/g, '""')}",${bill},${cash},${bill - cash},${qty}\n`;
-    });
-    
-    const blob = new Blob(["\ufeff" + csv], { type: 'text/csv;charset=utf-8;' });
+    const csv = [headers, ...rows].map(row => row.join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `bondhon_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.href = url;
+    a.download = `bondhon_export_${Date.now()}.csv`;
     a.click();
-    URL.revokeObjectURL(a.href);
+    URL.revokeObjectURL(url);
     
-    showToast(
-        currentLanguage === 'bn' ? "CSV ডাউনলোড হয়েছে!" : "CSV downloaded!",
-        'success'
-    );
-    document.getElementById('exportMenu')?.classList.add('hidden');
+    showToast(currentLanguage === 'bn' ? 'CSV এক্সপোর্ট সফল!' : 'CSV exported!', 'success');
+    toggleExportMenu();
 }
 
 async function exportJSON() {
-    const customers = allCustomers.length ? allCustomers : await db.customers.toArray();
+    const customers = await db.customers.toArray();
     const bin = await db.recycleBin.toArray();
-    const data = { customers, bin, exportDate: new Date().toISOString() };
     
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    if (customers.length === 0 && bin.length === 0) {
+        showToast(currentLanguage === 'bn' ? 'কোন ডাটা নেই!' : 'No data!', 'error');
+        return;
+    }
+    
+    const data = { customers, bin };
+    const json = JSON.stringify(data, null, 2);
+    const blob = new Blob([json], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `bondhon_backup_${new Date().toISOString().slice(0, 10)}.json`;
+    a.href = url;
+    a.download = `bondhon_backup_${Date.now()}.json`;
     a.click();
-    URL.revokeObjectURL(a.href);
+    URL.revokeObjectURL(url);
     
-    showToast(
-        currentLanguage === 'bn' ? "JSON ব্যাকআপ ডাউনলোড হয়েছে!" : "JSON backup downloaded!",
-        'success'
-    );
-    document.getElementById('exportMenu')?.classList.add('hidden');
+    showToast(currentLanguage === 'bn' ? 'JSON এক্সপোর্ট সফল!' : 'JSON exported!', 'success');
+    toggleExportMenu();
 }
 
 async function printReport() {
-    const customers = allCustomers.length ? allCustomers : await db.customers.toArray();
+    const customers = await db.customers.toArray();
+    if (customers.length === 0) {
+        showToast(currentLanguage === 'bn' ? 'কোন ডাটা নেই!' : 'No data!', 'error');
+        return;
+    }
+    
     const cur = getCurrency();
+    const totalQty = customers.reduce((sum, c) => sum + (c.qty || 0), 0);
+    const totalBill = customers.reduce((sum, c) => sum + (c.bill || 0), 0);
+    const totalCash = customers.reduce((sum, c) => sum + (c.cash || 0), 0);
+    const totalDue = customers.reduce((sum, c) => sum + (c.due || 0), 0);
     
-    const title = currentLanguage === 'bn' ? 'বন্ধন এন্টারপ্রাইজ - কাস্টমার তালিকা' : 'Bondhon Enterprise - Customer List';
-    const headers = currentLanguage === 'bn' 
-        ? { name: 'নাম', phone: 'ফোন', due: 'বাকি', qty: 'সুপারি' }
-        : { name: 'Name', phone: 'Phone', due: 'Due', qty: 'Quantity' };
+    const printContent = `
+        <html>
+        <head><title>Bondhon Report</title></head>
+        <body style="font-family: Arial; padding: 20px;">
+            <h1 style="text-align: center; color: #0d9488;">🌿 Bondhon Enterprise</h1>
+            <h3 style="text-align: center; color: #666;">Customer Report</h3>
+            <p style="text-align: center; color: #999;">Generated: ${new Date().toLocaleDateString('en-GB')}</p>
+            <hr style="border: 2px solid #0d9488; margin: 20px 0;">
+            
+            <div style="display: flex; justify-content: space-around; margin: 30px 0;">
+                <div style="text-align: center;">
+                    <h4 style="color: #666;">Total Quantity</h4>
+                    <p style="font-size: 24px; font-weight: bold; color: #0d9488;">${totalQty.toLocaleString()}</p>
+                </div>
+                <div style="text-align: center;">
+                    <h4 style="color: #666;">Total Bill</h4>
+                    <p style="font-size: 24px; font-weight: bold; color: #0d9488;">${cur}${totalBill.toLocaleString()}</p>
+                </div>
+                <div style="text-align: center;">
+                    <h4 style="color: #666;">Total Paid</h4>
+                    <p style="font-size: 24px; font-weight: bold; color: #059669;">${cur}${totalCash.toLocaleString()}</p>
+                </div>
+                <div style="text-align: center;">
+                    <h4 style="color: #666;">Total Due</h4>
+                    <p style="font-size: 24px; font-weight: bold; color: #dc2626;">${cur}${totalDue.toLocaleString()}</p>
+                </div>
+            </div>
+            
+            <table style="width: 100%; border-collapse: collapse; margin-top: 30px;">
+                <thead>
+                    <tr style="background: #0d9488; color: white;">
+                        <th style="padding: 12px; text-align: left;">Customer</th>
+                        <th style="padding: 12px; text-align: right;">Qty</th>
+                        <th style="padding: 12px; text-align: right;">Bill</th>
+                        <th style="padding: 12px; text-align: right;">Paid</th>
+                        <th style="padding: 12px; text-align: right;">Due</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${customers.map((c, i) => `
+                        <tr style="border-bottom: 1px solid #ddd; ${i % 2 === 0 ? 'background: #f9f9f9;' : ''}">
+                            <td style="padding: 10px;">${c.name}${c.phone ? ` (${c.phone})` : ''}</td>
+                            <td style="padding: 10px; text-align: right;">${(c.qty || 0).toLocaleString()}</td>
+                            <td style="padding: 10px; text-align: right;">${cur}${(c.bill || 0).toLocaleString()}</td>
+                            <td style="padding: 10px; text-align: right;">${cur}${(c.cash || 0).toLocaleString()}</td>
+                            <td style="padding: 10px; text-align: right; font-weight: bold; color: ${c.due > 0 ? '#dc2626' : '#059669'};">${cur}${(c.due || 0).toLocaleString()}</td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+            
+            <p style="text-align: center; margin-top: 40px; color: #999;">
+                <small>Bondhon Enterprise - Credit Management System</small>
+            </p>
+        </body>
+        </html>
+    `;
     
-    let html = `<html><head><title>${title}</title><style>body{font-family:arial;padding:20px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #ddd;padding:8px;text-align:left}</style></head><body>`;
-    html += `<h1>${title}</h1><p>${new Date().toLocaleDateString(currentLanguage === 'bn' ? 'bn-BD' : 'en-US')}</p>`;
-    html += `<table><tr><th>${headers.name}</th><th>${headers.phone}</th><th>${headers.due}</th><th>${headers.qty}</th></tr>`;
+    const printWindow = window.open('', '_blank');
+    printWindow.document.write(printContent);
+    printWindow.document.close();
+    printWindow.print();
     
-    customers.forEach(c => {
-        let bill = 0, cash = 0, qty = 0;
-        (c.history || []).forEach(h => {
-            bill += (parseFloat(h.bill) || 0);
-            cash += (parseFloat(h.cash) || 0);
-            qty += (parseInt(h.qty) || 0);
-        });
-        html += `<tr><td>${(c.name || '').replace(/</g, '&lt;')}</td><td>${(c.phone || '').replace(/</g, '&lt;')}</td><td>${cur}${(bill - cash).toLocaleString('bn-BD')}</td><td>${qty}</td></tr>`;
-    });
-    
-    html += '</table></body></html>';
-    const w = window.open('', '_blank');
-    w.document.write(html);
-    w.document.close();
-    w.print();
-    w.close();
-    document.getElementById('exportMenu')?.classList.add('hidden');
+    toggleExportMenu();
 }
 
 // ═══════════════════════════════════════════════════════════
-// Report & Analytics
+// Recycle Bin Functions
+// ═══════════════════════════════════════════════════════════
+
+async function renderBin() {
+    const items = await db.recycleBin.toArray();
+    const tbody = document.getElementById('binTable');
+    const cur = getCurrency();
+    
+    if (items.length === 0) {
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="3" style="text-align: center; padding: 60px 20px;">
+                    <div class="empty-icon"><i class="fas fa-trash"></i></div>
+                    <p class="empty-text" data-bn="বিন খালি" data-en="Bin is empty">বিন খালি</p>
+                </td>
+            </tr>
+        `;
+    } else {
+        tbody.innerHTML = items.map(item => `
+            <tr class="bin-row">
+                <td style="padding: 18px 20px;">
+                    <h4 style="font-weight: 700; color: var(--text-primary); margin-bottom: 4px;">${item.name}</h4>
+                    <p style="font-size: 12px; color: var(--text-secondary);">
+                        ${new Date(item.deletedAt).toLocaleDateString('bn-BD')}
+                    </p>
+                </td>
+                <td style="text-align: right; padding: 18px 20px;">
+                    <button onclick="restoreItem('${item.id}')" class="btn-icon" style="background: var(--primary-ultra-light); color: var(--primary); padding: 10px 16px; border-radius: 10px; border: none; font-weight: 700; cursor: pointer;">
+                        <i class="fas fa-undo"></i> ${currentLanguage === 'bn' ? 'পুনরুদ্ধার' : 'Restore'}
+                    </button>
+                </td>
+            </tr>
+        `).join('');
+    }
+    
+    applyLanguage();
+}
+
+async function restoreItem(id) {
+    const item = await db.recycleBin.get(id);
+    if (!item) return;
+    
+    if (item.type === 'customer') {
+        // Restore customer
+        const { deletedAt, type, ...customer } = item;
+        await db.customers.put(customer);
+        await saveCustomerToFirebase(customer);
+        await db.recycleBin.delete(id);
+        await restoreFromBinFirebase(id);
+        
+        showToast(
+            currentLanguage === 'bn' ? 'কাস্টমার পুনরুদ্ধার হয়েছে!' : 'Customer restored!',
+            'success'
+        );
+    } else if (item.type === 'transaction') {
+        // Restore transaction
+        const { deletedAt, type, ...transaction } = item;
+        await db.transactions.add(transaction);
+        await saveTransactionToFirebase(transaction);
+        await db.recycleBin.delete(id);
+        
+        showToast(
+            currentLanguage === 'bn' ? 'লেনদেন পুনরুদ্ধার হয়েছে!' : 'Transaction restored!',
+            'success'
+        );
+    }
+    
+    await render();
+    await renderBin();
+    vibrate(30);
+}
+
+// ═══════════════════════════════════════════════════════════
+// Report Generation
 // ═══════════════════════════════════════════════════════════
 
 async function renderReport() {
-    const container = document.getElementById('reportContent');
-    if (!container) return;
-
     const customers = await db.customers.toArray();
+    const container = document.getElementById('reportContent');
     const cur = getCurrency();
-    let gDue = 0, gCash = 0, gQty = 0;
-    const withDue = [];
-    const today = new Date().toISOString().slice(0, 10);
-    let todayBill = 0, todayCash = 0;
-
+    
+    if (customers.length === 0) {
+        container.innerHTML = `
+            <div style="text-align: center; padding: 60px 20px;">
+                <div class="empty-icon"><i class="fas fa-chart-bar"></i></div>
+                <p class="empty-text">No data available</p>
+            </div>
+        `;
+        return;
+    }
+    
+    const totalCust = customers.length;
+    const totalBill = customers.reduce((sum, c) => sum + (c.bill || 0), 0);
+    const totalCash = customers.reduce((sum, c) => sum + (c.cash || 0), 0);
+    const totalDue = customers.reduce((sum, c) => sum + (c.due || 0), 0);
+    const totalQty = customers.reduce((sum, c) => sum + (c.qty || 0), 0);
+    
+    const withDue = customers.filter(c => c.due > 0).sort((a, b) => b.due - a.due);
+    
+    // Calculate today's sales
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const todayTransactions = await db.transactions
+        .filter(t => t.timestamp >= today.getTime())
+        .toArray();
+    
+    const todayBill = todayTransactions.reduce((sum, t) => sum + (t.bill || 0), 0);
+    const todayCash = todayTransactions.reduce((sum, t) => sum + (t.cash || 0), 0);
+    
+    // Week trend
     const weekData = [];
     for (let i = 6; i >= 0; i--) {
-        const d = new Date();
-        d.setDate(d.getDate() - i);
+        const day = new Date();
+        day.setDate(day.getDate() - i);
+        day.setHours(0, 0, 0, 0);
+        const nextDay = new Date(day);
+        nextDay.setDate(nextDay.getDate() + 1);
+        
+        const dayTransactions = await db.transactions
+            .filter(t => t.timestamp >= day.getTime() && t.timestamp < nextDay.getTime())
+            .toArray();
+        
+        const dayBill = dayTransactions.reduce((sum, t) => sum + (t.bill || 0), 0);
+        
         weekData.push({
-            date: d.toISOString().slice(0, 10),
-            label: d.toLocaleDateString(currentLanguage === 'bn' ? 'bn-BD' : 'en-US', { weekday: 'short' }),
-            bill: 0,
-            cash: 0
+            label: day.toLocaleDateString('bn-BD', { weekday: 'short' }),
+            bill: dayBill
         });
     }
-
-    customers.forEach(c => {
-        let bill = 0, cash = 0, qty = 0;
-        (c.history || []).forEach(h => {
-            const amt = parseFloat(h.bill) || 0;
-            const paid = parseFloat(h.cash) || 0;
-            bill += amt;
-            cash += paid;
-            qty += (parseInt(h.qty) || 0);
-            const hDate = (h.date || '').slice(0, 10);
-            if (hDate === today) {
-                todayBill += amt;
-                todayCash += paid;
-            }
-            const wd = weekData.find(w => w.date === hDate);
-            if (wd) {
-                wd.bill += amt;
-                wd.cash += paid;
-            }
-        });
-        const due = bill - cash;
-        gDue += due; gCash += cash; gQty += qty;
-        if (due > 0) withDue.push({ ...c, due, bill, cash, qty });
-    });
-
-    withDue.sort((a, b) => b.due - a.due);
-    const maxDay = Math.max(...weekData.map(w => w.bill), 1);
-
+    
+    const maxDay = Math.max(...weekData.map(d => d.bill), 1);
+    
     const labels = currentLanguage === 'bn'
         ? {
-            todaySales: 'আজকের বিক্রয়',
+            todaySales: "আজকের বিক্রয়",
             paid: 'জমা',
             hasDue: 'বাকি আছে',
             people: 'জন',
@@ -1593,9 +1757,9 @@ async function renderReport() {
         </div>
         <div class="bg-slate-100/50 p-4 rounded-2xl mb-6">
             <h4 class="text-xs font-black text-slate-500 uppercase mb-3">${labels.summary}</h4>
-            <p class="text-slate-700">${labels.totalDue}: <strong>${cur}${gDue.toLocaleString('bn-BD')}</strong></p>
-            <p class="text-slate-700">${labels.totalPaid}: <strong>${cur}${gCash.toLocaleString('bn-BD')}</strong></p>
-            <p class="text-slate-700">${labels.totalQty}: <strong>${gQty.toLocaleString('bn-BD')} ${labels.pieces}</strong></p>
+            <p class="text-slate-700">${labels.totalDue}: <strong>${cur}${totalDue.toLocaleString('bn-BD')}</strong></p>
+            <p class="text-slate-700">${labels.totalPaid}: <strong>${cur}${totalCash.toLocaleString('bn-BD')}</strong></p>
+            <p class="text-slate-700">${labels.totalQty}: <strong>${totalQty.toLocaleString('bn-BD')} ${labels.pieces}</strong></p>
         </div>
         <div>
             <h4 class="text-xs font-black text-slate-500 uppercase mb-3">${labels.dueList}</h4>
@@ -1645,6 +1809,11 @@ async function handleImport(e) {
             await db.customers.clear();
             await db.customers.bulkPut(data.customers);
             
+            // Sync to Firebase
+            for (const customer of data.customers) {
+                await saveCustomerToFirebase(customer);
+            }
+            
             if (data.bin && Array.isArray(data.bin)) {
                 await db.recycleBin.clear();
                 await db.recycleBin.bulkPut(data.bin);
@@ -1674,7 +1843,7 @@ async function handleImport(e) {
 }
 
 // ═══════════════════════════════════════════════════════════
-// Search Filter
+// Search & Filter
 // ═══════════════════════════════════════════════════════════
 
 function filterTable() {
@@ -1727,6 +1896,67 @@ function startVoiceInput() {
 }
 
 // ═══════════════════════════════════════════════════════════
+// Online/Offline Status Management
+// ═══════════════════════════════════════════════════════════
+
+function updateOnlineStatus() {
+    isOnline = navigator.onLine;
+    const statusBadge = document.getElementById('statusBadge');
+    
+    if (isOnline) {
+        if (statusBadge) {
+            statusBadge.className = 'status-badge status-online';
+            statusBadge.innerHTML = '<span class="status-dot"></span> <span data-bn="Online" data-en="Online">Online</span>';
+        }
+        // Process sync queue when coming online
+        processSyncQueue();
+    } else {
+        if (statusBadge) {
+            statusBadge.className = 'status-badge status-offline';
+            statusBadge.innerHTML = '<span class="status-dot"></span> <span data-bn="Offline" data-en="Offline">Offline</span>';
+        }
+    }
+    
+    applyLanguage();
+}
+
+// Listen for online/offline events
+window.addEventListener('online', () => {
+    isOnline = true;
+    updateOnlineStatus();
+    showToast(
+        currentLanguage === 'bn' ? '✓ অনলাইন - সিঙ্ক শুরু হচ্ছে...' : '✓ Online - Starting sync...',
+        'success'
+    );
+});
+
+window.addEventListener('offline', () => {
+    isOnline = false;
+    updateOnlineStatus();
+    showToast(
+        currentLanguage === 'bn' ? '⚠ অফলাইন মোড' : '⚠ Offline mode',
+        'error'
+    );
+});
+
+// ═══════════════════════════════════════════════════════════
+// Data Migration (for existing users)
+// ═══════════════════════════════════════════════════════════
+
+async function migrateData() {
+    // Check if we need to upgrade the database for transactions
+    const version = await db.verno;
+    console.log('Database version:', version);
+    
+    // Migrate existing customers to Firebase if not already synced
+    const customers = await db.customers.toArray();
+    if (customers.length > 0 && window.firebaseDb) {
+        console.log('Checking for migration...');
+        // This will be handled by the sync queue on first load
+    }
+}
+
+// ═══════════════════════════════════════════════════════════
 // Input Auto-Scroll
 // ═══════════════════════════════════════════════════════════
 
@@ -1747,6 +1977,9 @@ function scrollTopSmooth() {
 // ═══════════════════════════════════════════════════════════
 
 window.onload = async function () {
+    console.log('🚀 Bondhon Enterprise Loading...');
+    
+    // Migrate data if needed
     await migrateData();
     
     // Load settings
@@ -1763,15 +1996,39 @@ window.onload = async function () {
     updateOnlineStatus();
     setupInputScroll();
     
-    // Initialize robust sync system
-    initSyncSystem();
+    // Initialize Firebase real-time sync
+    // Wait for Firebase to be available
+    const waitForFirebase = setInterval(() => {
+        if (window.firebaseDb) {
+            clearInterval(waitForFirebase);
+            initFirebaseSync();
+            
+            // Process any queued items
+            processSyncQueue();
+        }
+    }, 100);
     
-    // Log sync status
-    const syncStatus = await getSyncStatus();
-    console.log('Sync Status:', syncStatus);
+    // Timeout after 5 seconds
+    setTimeout(() => {
+        clearInterval(waitForFirebase);
+        if (!window.firebaseDb) {
+            console.warn('⚠ Firebase not initialized - running in offline mode');
+            showToast(
+                currentLanguage === 'bn' 
+                    ? '⚠ অফলাইন মোড - ডাটা শুধুমাত্র লোকাল ডিভাইসে সেভ হবে' 
+                    : '⚠ Offline mode - Data saved locally only',
+                'error'
+            );
+        }
+    }, 5000);
+    
+    // Update sync status periodically
+    setInterval(updateSyncStatus, 5000);
+    
+    console.log('✓ Bondhon Enterprise Ready!');
 };
 
 // Cleanup on page unload
 window.addEventListener('beforeunload', () => {
-    stopSyncPolling();
+    // Nothing to clean up
 });
